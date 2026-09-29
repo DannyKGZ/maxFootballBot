@@ -1,0 +1,27 @@
+# systemd-сервис бота на сервере (ставится скриптом deploy/setup-server.sh).
+# Бот перезапускается при падении и стартует сам после перезагрузки сервера.
+[Unit]
+Description=MAX football bot (запись на футбол)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=maxbot
+Group=maxbot
+WorkingDirectory=/opt/max-football-bot
+Environment=NODE_ENV=production
+# Сертификат Минцифры — без него Node не доверяет platform-api2.max.ru
+Environment=NODE_EXTRA_CA_CERTS=/opt/max-football-bot/russian_trusted_ca.pem
+ExecStart=/usr/bin/node dist/index.js
+Restart=always
+RestartSec=5
+# Защита: бот может писать только в свою папку data/
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/max-football-bot/data
+
+[Install]
+WantedBy=multi-user.target

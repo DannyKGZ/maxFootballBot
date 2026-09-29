@@ -1,0 +1,16 @@
+[Unit]
+Description=MAX football bot (webhook server + Cloudflare quick tunnel)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/dannykg/projects/maxFootballBot
+ExecStart=/home/dannykg/projects/maxFootballBot/scripts/dev-tunnel.sh start
+Restart=always
+RestartSec=5
+# npm/node ставились через nvm — systemd не читает .bashrc, поэтому PATH прописан явно.
+Environment=PATH=/home/dannykg/.nvm/versions/node/v22.23.2/bin:/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=default.target

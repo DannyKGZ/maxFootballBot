@@ -1,0 +1,32 @@
+{
+  "name": "max-football-bot",
+  "version": "1.0.0",
+  "description": "Бот для MAX (dev.max.ru): еженедельная запись на футбол с резервом, кнопками и подтверждениями",
+  "private": true,
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "NODE_EXTRA_CA_CERTS=./russian_trusted_ca.pem node dist/index.js",
+    "dev": "NODE_EXTRA_CA_CERTS=./russian_trusted_ca.pem ts-node-dev --respawn --transpile-only src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node tests/run.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.11.1",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "node-cron": "^3.0.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.14.0",
+    "@types/node-cron": "^3.0.11",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.5.4"
+  }
+}

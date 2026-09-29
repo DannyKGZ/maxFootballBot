@@ -1,0 +1,11 @@
+node_modules/
+dist/
+# Секреты и данные бота — только на сервере/ПК, не в репозиторий
+.env
+.env.*
+!.env.example
+data/
+*.db
+*.db-shm
+*.db-wal
+*.log
