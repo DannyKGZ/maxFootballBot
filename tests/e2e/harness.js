@@ -36,6 +36,7 @@ function startMock() {
     waiters: [],
     subscriptions: [{ url: "https://old-tunnel.trycloudflare.com/webhook", time: 0 }],
     deletedSubscriptions: [],
+    hangOnce: new Set(), // пути, на которых «MAX» один раз не отвечает (проверка таймаутов)
     // У Ромы и Влада есть фамилия (name = «имя фамилия») — как у части людей в реальном чате.
     members: [
       ...Object.entries(USERS).map(([id, name]) => {
@@ -62,6 +63,10 @@ function startMock() {
       const p = u.pathname;
       const mid = u.searchParams.get("message_id");
       calls.push(`${req.method} ${p}${u.search}`);
+      if (state.hangOnce.has(p)) {
+        state.hangOnce.delete(p);
+        return; // не отвечаем — как зависшее соединение
+      }
       if (req.method === "POST" && p === "/messages") {
         const userId = Number(u.searchParams.get("user_id")) || 0;
         if (DENIED_DM.includes(userId)) return send(res, { code: "chat.denied" }, 403);

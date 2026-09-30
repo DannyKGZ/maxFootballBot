@@ -51,7 +51,13 @@ export async function startPolling(): Promise<void> {
       const res = await getUpdates(marker, POLL_TIMEOUT_SEC, UPDATE_TYPES);
       for (const update of res.updates ?? []) {
         if (!running) break;
+        // Диагностика задержек: пришло ли событие поздно (со стороны MAX/сети) или долго обрабатывалось у нас.
+        const lagSec = update.timestamp ? Math.round((Date.now() - update.timestamp) / 1000) : 0;
+        if (lagSec > 30) console.warn(`[poller] событие ${update.update_type} пришло с опозданием ${lagSec} с`);
+        const started = Date.now();
         await handleUpdate(update); // по порядку, как пришли
+        const tookSec = Math.round((Date.now() - started) / 1000);
+        if (tookSec > 10) console.warn(`[poller] обработка ${update.update_type} заняла ${tookSec} с`);
       }
       if (res.marker != null && res.marker !== marker) {
         marker = res.marker;

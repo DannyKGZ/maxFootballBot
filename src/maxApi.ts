@@ -32,11 +32,18 @@ export interface NewMessageBody {
   attachments?: InlineKeyboardAttachment[];
 }
 
+/**
+ * Сколько ждать ответа MAX. Без таймаута зависший запрос (плохая сеть) держал
+ * бы очередь минутами: Node сам сдаётся только через ~5 минут.
+ */
+const REQUEST_TIMEOUT_MS = Number(process.env.MAX_REQUEST_TIMEOUT_MS) || 20_000; // env — только для тестов
+
 async function request<T>(
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
   pathname: string,
   query: Record<string, string | number | boolean | undefined>,
   body?: unknown,
+  timeoutMs: number = REQUEST_TIMEOUT_MS,
 ): Promise<T> {
   const url = new URL(config.apiBaseUrl + pathname);
   for (const [key, value] of Object.entries(query)) {
@@ -50,6 +57,12 @@ async function request<T>(
       Authorization: config.botToken,
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(timeoutMs),
+  }).catch((err: unknown) => {
+    if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
+      throw new Error(`MAX API ${method} ${pathname}: нет ответа за ${timeoutMs / 1000} с`);
+    }
+    throw err;
   });
 
   const text = await res.text();
@@ -212,5 +225,12 @@ export interface UpdatesResponse {
  */
 export function getUpdates(marker: number | undefined, timeoutSec: number, types: string[]): Promise<UpdatesResponse> {
   // Без очереди лимитов: запрос висит до timeout секунд и не должен задерживать отправку сообщений.
-  return request<UpdatesResponse>("GET", "/updates", { limit: 100, timeout: timeoutSec, marker, types: types.join(",") });
+  // Сам запрос висит до timeoutSec — ждём его плюс запас на сеть.
+  return request<UpdatesResponse>(
+    "GET",
+    "/updates",
+    { limit: 100, timeout: timeoutSec, marker, types: types.join(",") },
+    undefined,
+    (timeoutSec + 15) * 1000,
+  );
 }
