@@ -22,15 +22,19 @@ module.exports = {
 
     await t.click(3, m, "Андрей");
     t.ok(t.toast() === "Сейчас выбирает ⚪ Ruslan", "не в свою очередь — нельзя");
-    await t.click(2, draft(), "Андрей");
-    t.ok(draft().text.includes("Выбирает ⚫ Рома"), "очередь перешла ко второму капитану");
-    await t.click(3, draft(), "Борис");
-    await t.click(1, draft(), "Вадим"); // админ выбирает за капитана ⚪
-    t.ok(draft().text.includes("⚪ Команда Ruslan (3): Ruslan, Андрей, Вадим"), "админ может выбрать за капитана", draft().text);
-    await t.click(3, draft(), "Гена");
+    await t.click(2, draft(), "Андрей"); // 1-й выбор: ⚪
+    t.ok(draft().text.includes("Выбирает ⚫ Рома") && draft().text.includes("Порядок змейкой"), "очередь перешла ко второму капитану, порядок змейкой");
+    await t.click(3, draft(), "Борис"); // 2-й выбор: ⚫
+    t.ok(draft().text.includes("Выбирает ⚫ Рома"), "змейка: ⚫ выбирает второй раз подряд");
+    await t.click(2, draft(), "Вадим");
+    t.ok(t.toast() === "Сейчас выбирает ⚫ Рома", "⚪ не может вклиниться");
+    await t.click(1, draft(), "Вадим"); // 3-й выбор: ⚫ — админ выбирает за капитана
+    t.ok(draft().text.includes("⚫ Команда Рома (3): Рома, Борис, Вадим"), "админ может выбрать за капитана", draft().text);
+    t.ok(draft().text.includes("Выбирает ⚪ Ruslan"), "после двух выборов ⚫ — снова ⚪");
+    await t.click(2, draft(), "Гена"); // 4-й выбор: ⚪
     m = draft();
     t.ok(m.text.startsWith("⚽ Составы готовы!") && m.attachments.length === 0, "все разобраны — составы готовы", m.text);
-    t.ok(m.text.includes("⚫ Команда Рома (3): Рома, Борис, Гена") && !m.text.includes("Резервист"), "3 на 3, резерв не в командах");
+    t.ok(m.text.includes("⚪ Команда Ruslan (3): Ruslan, Андрей, Гена") && !m.text.includes("Резервист"), "3 на 3, резерв не в командах", m.text);
 
     await t.say(5, "/составы");
     t.ok(t.find(/^⚽ Составы:/) && t.find(/^⚽ Составы:/).text.includes("Команда Ruslan"), "/составы показывает команды любому");

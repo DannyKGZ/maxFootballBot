@@ -8,7 +8,7 @@ import { ButtonAction, Draft, FootballSession, Player } from "./types";
  * Дележка на команды:
  *  1. админ пишет /дележка — бот публикует основу кнопками, админ отмечает двух
  *     капитанов (или сразу: /дележка 2 5 — номера в списке);
- *  2. капитаны по очереди (1-й, 2-й, 1-й, …) выбирают игроков основы кнопками
+ *  2. капитаны выбирают игроков основы змейкой (⚪ ⚫ ⚫ ⚪ ⚪ ⚫ …) кнопками
  *     под сообщением; нажать может сам капитан (тот, кто записывался под этим
  *     именем) или админ — если капитана записали «за друга»;
  *  3. когда игроки кончились — бот показывает составы; /составы — показать снова.
@@ -19,6 +19,13 @@ export const DRAFT_RE = /^\/(дележка|делёжка|draft)(?:\s+([\s\S]+)
 export const TEAMS_RE = /^\/(составы|состав|команды|teams)$/i;
 
 const TEAM_ICON = ["⚪", "⚫"];
+
+/**
+ * Очерёдность «змейкой»: ⚪ ⚫ ⚫ ⚪ ⚪ ⚫ ⚫ ⚪ … — второй капитан компенсирует то,
+ * что первый выбирает раньше. По номеру выбора (0, 1, 2, …) — чья очередь.
+ */
+const SNAKE: Array<0 | 1> = [0, 1, 1, 0];
+export const turnForPick = (pickIndex: number): 0 | 1 => SNAKE[pickIndex % 4];
 const NOT_ADMIN = "Эта команда доступна только администраторам чата.";
 
 const btn = (text: string, action: ButtonAction): KeyboardButton => ({ type: "callback", text, payload: JSON.stringify(action) });
@@ -69,6 +76,7 @@ function render(s: FootballSession): { text: string; attachments: InlineKeyboard
         ...teamLines(s, d),
         "",
         `Выбирает ${TEAM_ICON[d.turn]} ${nameOf(s, d.captains[d.turn])} — нажмите на игрока.`,
+        "Порядок змейкой: ⚪ ⚫ ⚫ ⚪ ⚪ ⚫ …",
       ].join("\n"),
       attachments: [kb([...left.map((p) => [btn(p.displayName, { a: "dr_pick", k: playerKey(p) })]), cancel])],
     };
@@ -96,7 +104,7 @@ async function show(s: FootballSession): Promise<void> {
 /** Капитаны выбраны — начинаем выбор; если выбирать некого, сразу готово. */
 function beginPicking(s: FootballSession, d: Draft): void {
   d.stage = remaining(s, d).length ? "picking" : "done";
-  d.turn = 0;
+  d.turn = turnForPick(d.picks.length);
 }
 
 /** /дележка, /дележка 2 5, /дележка сброс → текст ответа (пусто — бот уже показал сообщение дележки). */
@@ -176,7 +184,7 @@ export async function handleDraftAction(chatId: number, userId: number, action: 
     }
     if (!remaining(s, d).some((p) => playerKey(p) === action.k)) return "Этот игрок уже выбран";
     d.picks.push({ k: action.k, team: d.turn });
-    d.turn = d.turn === 0 ? 1 : 0;
+    d.turn = turnForPick(d.picks.length);
     if (remaining(s, d).length === 0) d.stage = "done";
     await show(s);
     return d.stage === "done" ? "Составы готовы!" : `${nameOf(s, action.k)} — в команде`;
