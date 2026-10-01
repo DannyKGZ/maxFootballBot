@@ -111,6 +111,29 @@ export async function refreshRoster(session: FootballSession): Promise<void> {
   await pushRosterUpdate(session);
 }
 
+/**
+ * Состав изменился («+», «-», кнопки, правка админом): публикуем свежий список
+ * внизу чата, чтобы его сразу было видно, а старое сообщение убираем. Если
+ * старое удалить нельзя (MAX удаляет только сообщения младше 24 ч) — снимаем
+ * с него кнопки и помечаем, что актуальный список ниже.
+ */
+async function repostRoster(session: FootballSession): Promise<void> {
+  const old = session.messageId;
+  const { text, attachments } = rosterMessage(session);
+  const res = await api.sendMessageToChat(session.chatId, { text, attachments });
+  session.messageId = res.message.body.mid;
+  setSession(session);
+  if (!old) return;
+  try {
+    await api.deleteMessage(session.chatId, old);
+  } catch {
+    await api
+      .editMessage(session.chatId, old, { text: `${text}\n\n⬇️ Список обновлён — актуальный ниже.`, attachments: [] })
+      .catch(() => undefined); // старого сообщения уже нет — и ладно
+  }
+}
+
+/** Перерисовать сообщение записи на месте (шапка, закрытие, перезапуск бота). */
 async function pushRosterUpdate(session: FootballSession): Promise<void> {
   const { text, attachments } = rosterMessage(session);
   if (session.messageId) {
@@ -235,7 +258,7 @@ async function addPlayers(
     });
   }
   recomputeReserveFlags(session);
-  await pushRosterUpdate(session);
+  await repostRoster(session);
 }
 
 /**
@@ -246,8 +269,8 @@ async function removePlayerAt(session: FootballSession, index: number): Promise<
   const wasReserve = new Set(session.players.filter((p) => p.isReserve));
   session.players.splice(index, 1);
   recomputeReserveFlags(session);
-  await pushRosterUpdate(session);
 
+  // Сначала — кто поднялся из резерва, потом свежий список: он должен быть последним в чате.
   const promoted = session.players.filter((p) => wasReserve.has(p) && !p.isReserve);
   for (const p of promoted) {
     const by = p.addedByName && p.addedByName !== p.displayName ? ` (записал ${p.addedByName})` : "";
@@ -255,6 +278,7 @@ async function removePlayerAt(session: FootballSession, index: number): Promise<
       text: `⬆️ ${p.displayName}${by} переходит из резерва в основной состав — освободилось место.`,
     });
   }
+  await repostRoster(session);
 }
 
 /** Игрок из профиля MAX для голого "+": first_name (+ last_name), в скобках name. */
@@ -576,6 +600,6 @@ export async function adminRenameAt(session: FootballSession, index: number, new
   const p = session.players[index];
   p.displayName = name;
   delete p.lastName; // фамилия из профиля больше не относится к новому имени
-  await pushRosterUpdate(session);
+  await repostRoster(session);
   return null;
 }
