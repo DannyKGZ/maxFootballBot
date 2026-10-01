@@ -7,7 +7,8 @@ import {
 } from "./keyboard";
 import { applySchedule } from "./scheduler";
 import { isChatAdmin } from "./sessionLogic";
-import { deleteSchedule, loadSchedule, saveSchedule } from "./settingsStore";
+import { deleteSchedule, getGameTime, loadSchedule, saveSchedule } from "./settingsStore";
+import { gameWeekdays } from "./gameDays";
 import { ButtonAction, ScheduleAction } from "./types";
 
 /**
@@ -51,6 +52,11 @@ export function describeCron(expression: string): string {
   if (!simple) return `по cron «${expression}»`;
   const time = `${pad(Number(hour))}:${pad(Number(min))}${Number(sec) ? `:${pad(Number(sec))}` : ""}`;
   return `${formatDays(days!.map((d) => d % 7))} в ${time}`;
+}
+
+/** «игра — на следующий день: Ср, Пт, Пн в 20:30». */
+export function gamesText(): string {
+  return `игра — на следующий день после публикации: ${formatDays(gameWeekdays())} в ${getGameTime()}`;
 }
 
 /** Действующее расписание публикации: из /расписание или CRON_SCHEDULE из .env. */
@@ -128,7 +134,7 @@ async function finish(
   dialogs.delete(key(chatId, userId));
 
   await api.editMessage(chatId, dialog.messageId, {
-    text: `✅ Расписание сохранено: ${formatDays(dialog.days)} в ${time} (${config.timezone}).\nБот будет публиковать новую запись в эти дни.`,
+    text: `✅ Расписание сохранено: ${formatDays(dialog.days)} в ${time} (${config.timezone}).\nБот будет публиковать новую запись в эти дни, ${gamesText()}.`,
     attachments: [],
   });
   return "Расписание сохранено";
@@ -190,7 +196,7 @@ export async function handleScheduleCallback(
       applySchedule(config.cronSchedule);
       dialogs.delete(key(chatId, userId));
       await api.editMessage(chatId, dialog.messageId, {
-        text: `♻️ Расписание сброшено. Теперь запись публикуется ${currentScheduleText()}, часовой пояс ${config.timezone}.`,
+        text: `♻️ Расписание сброшено. Теперь запись публикуется ${currentScheduleText()}, часовой пояс ${config.timezone}; ${gamesText()}.`,
         attachments: [],
       });
       return "Расписание сброшено";

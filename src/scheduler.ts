@@ -1,9 +1,9 @@
 import cron, { ScheduledTask } from "node-cron";
 import { config } from "./config";
-import { publishNewSession } from "./sessionLogic";
+import { closeSignupIfStarted, publishNewSession } from "./sessionLogic";
 import { runNotifications } from "./notifications";
 import { loadSchedule } from "./settingsStore";
-import { getAllVoteSessions } from "./store";
+import { getAllSessions, getAllVoteSessions } from "./store";
 import { finalizeVote } from "./voteLogic";
 
 let task: ScheduledTask | null = null;
@@ -45,6 +45,15 @@ export function applySchedule(expression: string): void {
  * автозакрытие голосования. Отметки хранятся в базе — рестарт не даёт повторов.
  */
 async function tick(now = Date.now()): Promise<void> {
+  // Игра началась — запись закрывается, список фиксируется.
+  for (const session of getAllSessions()) {
+    try {
+      await closeSignupIfStarted(session, now);
+    } catch (err) {
+      console.error("[scheduler] ошибка закрытия записи:", err);
+    }
+  }
+
   await runNotifications(now);
 
   if (config.voteAutoCloseHours > 0) {

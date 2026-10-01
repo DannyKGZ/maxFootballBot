@@ -32,6 +32,17 @@ export interface NewMessageBody {
   attachments?: InlineKeyboardAttachment[];
 }
 
+/** «fetch failed <- UND_ERR_SOCKET other side closed» — вся цепочка причин ошибки. */
+function errorChain(err: unknown): string {
+  const parts: string[] = [];
+  for (let e: unknown = err, i = 0; e && i < 5; i++) {
+    const x = e as { code?: string; message?: string; cause?: unknown };
+    parts.push([x.code, x.message ?? String(e)].filter(Boolean).join(" "));
+    e = x.cause;
+  }
+  return parts.join(" <- ");
+}
+
 /**
  * Сколько ждать ответа MAX. Без таймаута зависший запрос (плохая сеть) держал
  * бы очередь минутами: Node сам сдаётся только через ~5 минут.
@@ -62,7 +73,9 @@ async function request<T>(
     if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
       throw new Error(`MAX API ${method} ${pathname}: нет ответа за ${timeoutMs / 1000} с`);
     }
-    throw err;
+    // У fetch текст всегда «fetch failed», а настоящая причина (обрыв соединения,
+    // DNS, TLS) лежит в err.cause — выносим её в сообщение, чтобы было видно в логе.
+    throw new Error(`MAX API ${method} ${pathname}: сетевая ошибка — ${errorChain(err)}`);
   });
 
   const text = await res.text();

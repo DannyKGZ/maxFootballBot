@@ -35,6 +35,7 @@ export async function handleDmUserAction(
     case "join": {
       const outcome = await joinSelf(group, user);
       if (outcome === "no_session") return "Сейчас записи нет — она откроется по расписанию";
+      if (outcome === "closed") return "🔒 Запись закрыта — игра уже началась";
       if (outcome === "already") return "Вы уже записаны";
       return "✅ Вы записаны";
     }
@@ -49,7 +50,9 @@ export async function handleDmUserAction(
     }
     case "dm_rm": {
       await dropDialog();
-      return (await removeOwnByName(group, user.user_id, action.n)) ? `Убрано из записи: ${action.n}` : "Этой записи уже нет";
+      return (await removeOwnByName(group, user.user_id, action.n))
+        ? `Убрано из записи: ${action.n}`
+        : "Не удалось: записи уже нет или игра началась (тогда менять состав может только админ)";
     }
     case "dm_rm_cancel":
       await dropDialog();

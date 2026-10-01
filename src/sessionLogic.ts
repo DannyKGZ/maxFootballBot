@@ -1,5 +1,5 @@
 import { config } from "./config";
-import { getGameTime } from "./settingsStore";
+import { computeNextGameDate, isSignupOpen } from "./gameDays";
 import * as api from "./maxApi";
 import {
   addAnotherKeyboard,
@@ -28,19 +28,67 @@ function recomputeReserveFlags(session: FootballSession): void {
   });
 }
 
-/** Следующая дата игры (день недели + время из конфига), строго в будущем. */
-export function computeNextGameDate(from: Date = new Date()): Date {
-  const result = new Date(from);
-  result.setSeconds(0, 0);
-  const [hours, minutes] = getGameTime().split(":").map(Number);
-  result.setHours(hours, minutes, 0, 0);
+/** Дата игры — от расписания (см. gameDays.ts): на следующий день после публикации. */
+export { computeNextGameDate };
 
-  let diff = (config.gameDayOfWeek - result.getDay() + 7) % 7;
-  if (diff === 0 && result.getTime() <= from.getTime()) {
-    diff = 7; // время сегодня уже прошло — берём через неделю
+let idSeq = 0;
+function newPlayerId(): string {
+  return `${Date.now().toString(36)}${(idSeq++ % 1296).toString(36).padStart(2, "0")}`;
+}
+
+/**
+ * Ключ игрока для кнопок (позиция в списке может сдвигаться). Это id игрока:
+ * «кто записал + время записи» не годится — «+Андрей +Борис» записываются в одну
+ * миллисекунду одним человеком.
+ */
+export function playerKey(p: Player): string {
+  return p.id ?? `${p.userId}:${p.joinedAt}`;
+}
+
+/** Выдать id игрокам, у которых его нет (записаны старой версией бота). */
+export function ensurePlayerIds(session: FootballSession): void {
+  let changed = false;
+  for (const p of session.players) {
+    if (!p.id) {
+      p.id = newPlayerId();
+      changed = true;
+    }
   }
-  result.setDate(result.getDate() + diff);
-  return result;
+  if (changed) setSession(session);
+}
+
+/** Текст и кнопки сообщения записи: после начала игры — без кнопок и с пометкой. */
+function rosterMessage(session: FootballSession) {
+  const closed = !isSignupOpen(session);
+  return {
+    text: closed ? `${buildRosterText(session)}\n\n🔒 Запись закрыта — игра началась.` : buildRosterText(session),
+    attachments: closed ? [] : [rosterKeyboard()],
+  };
+}
+
+/** Текст отказа, когда запись уже закрыта (игра началась). */
+export function signupClosedText(session: FootballSession): string {
+  const d = new Date(session.date);
+  const time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  return `🔒 Запись на игру ${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")} в ${time} закрыта — игра уже началась. Состав изменить может только админ.`;
+}
+
+/**
+ * Вызывается по таймеру: если игра началась, запись закрывается — сообщение со
+ * списком помечается «закрыта», кнопки снимаются, «+»/«-» больше не меняют список.
+ */
+export async function closeSignupIfStarted(session: FootballSession, now = Date.now()): Promise<boolean> {
+  if (session.closedAt || now < new Date(session.date).getTime()) return false;
+  session.closedAt = now;
+  setSession(session);
+  if (session.messageId) {
+    try {
+      await api.editMessage(session.chatId, session.messageId, rosterMessage(session));
+    } catch (err) {
+      console.warn("[sessionLogic] не удалось пометить запись закрытой:", err instanceof Error ? err.message : err);
+    }
+  }
+  return true;
 }
 
 /**
@@ -52,7 +100,7 @@ export async function refreshRosterOnStartup(chatId: number): Promise<void> {
   const session = getSession(chatId);
   if (!session?.messageId) return;
   try {
-    await api.editMessage(chatId, session.messageId, { text: buildRosterText(session), attachments: [rosterKeyboard()] });
+    await api.editMessage(chatId, session.messageId, rosterMessage(session));
   } catch (err) {
     console.warn("[sessionLogic] не удалось обновить сообщение записи при запуске:", err instanceof Error ? err.message : err);
   }
@@ -64,8 +112,7 @@ export async function refreshRoster(session: FootballSession): Promise<void> {
 }
 
 async function pushRosterUpdate(session: FootballSession): Promise<void> {
-  const text = buildRosterText(session);
-  const attachments = [rosterKeyboard()];
+  const { text, attachments } = rosterMessage(session);
   if (session.messageId) {
     try {
       await api.editMessage(session.chatId, session.messageId, { text, attachments });
@@ -179,6 +226,7 @@ async function addPlayers(
   for (const np of newPlayers) {
     session.players.push({
       ...np,
+      id: newPlayerId(),
       userId,
       addedByName: sender.first_name.trim(),
       addedByFullName: fullName(sender),
@@ -230,6 +278,10 @@ export async function handlePlusCommand(
 ): Promise<void> {
   const session = getSession(chatId);
   if (!session) return; // нет активной записи в этом чате
+  if (!isSignupOpen(session)) {
+    await api.sendMessageToChat(chatId, { text: signupClosedText(session) });
+    return;
+  }
 
   const alreadyRegistered = findPlayerIndexByUser(session, userId) !== -1;
 
@@ -269,6 +321,10 @@ export async function handleMinusCommand(
 
   const own = session.players.filter((p) => p.userId === userId);
   if (own.length === 0) return; // записей этого пользователя нет — ничего не делаем
+  if (!isSignupOpen(session)) {
+    await api.sendMessageToChat(chatId, { text: signupClosedText(session) });
+    return;
+  }
 
   // Кандидаты на удаление: записи с указанным именем, а без имени/совпадения — все свои.
   const named = name
@@ -297,6 +353,10 @@ export async function handleMinusCommand(
 export async function handleRemovePick(chatId: number, userId: number, name: string): Promise<void> {
   const session = getSession(chatId);
   if (!session) return;
+  if (!isSignupOpen(session)) {
+    await api.sendMessageToChat(chatId, { text: signupClosedText(session) });
+    return;
+  }
 
   const index = findOwnIndex(session, userId, name);
   if (index === -1) return;
@@ -325,6 +385,10 @@ export async function handleAwaitedPlayerName(
   const session = getSession(chatId);
   clearPendingAction(chatId, userId);
   if (!session) return true;
+  if (!isSignupOpen(session)) {
+    await api.sendMessageToChat(chatId, { text: signupClosedText(session) });
+    return true;
+  }
 
   const error = validateNames([name]);
   if (error) {
@@ -338,6 +402,11 @@ export async function handleAwaitedPlayerName(
 // ---- Обработка нажатий на инлайн-кнопки ----
 
 export async function handleAddAnotherYes(chatId: number, userId: number): Promise<void> {
+  const session = getSession(chatId);
+  if (session && !isSignupOpen(session)) {
+    await api.sendMessageToChat(chatId, { text: signupClosedText(session) });
+    return;
+  }
   setPendingAction({ type: "await_new_player_name", chatId, userId, createdAt: Date.now() });
   await api.sendMessageToChat(chatId, { text: "Напишите имя нового игрока сообщением, например: Владимир" });
 }
@@ -351,6 +420,10 @@ export async function handleRemoveYes(chatId: number, userId: number): Promise<v
   clearPendingAction(chatId, userId);
   const session = getSession(chatId);
   if (!session) return;
+  if (!isSignupOpen(session)) {
+    await api.sendMessageToChat(chatId, { text: signupClosedText(session) });
+    return;
+  }
 
   const index = findOwnIndex(session, userId, targetName);
   if (index === -1) return;
@@ -442,12 +515,13 @@ export async function handleCloseNo(chatId: number, userId: number): Promise<voi
 
 // ---- Запись из личного чата с ботом (кнопки в личке) ----
 
-export type JoinOutcome = "no_session" | "already" | "joined";
+export type JoinOutcome = "no_session" | "closed" | "already" | "joined";
 
 /** «➕ Записаться» в личке: записать себя по профилю в запись общего чата. */
 export async function joinSelf(groupChatId: number, sender: MaxUser): Promise<JoinOutcome> {
   const session = getSession(groupChatId);
   if (!session) return "no_session";
+  if (!isSignupOpen(session)) return "closed";
   // «Себя» — запись с профилем (голый «+»); друзья, записанные этим человеком, не в счёт.
   if (session.players.some((p) => p.userId === sender.user_id && p.profileName)) return "already";
   await addPlayers(session, sender.user_id, [playerFromProfile(sender)], sender);
@@ -462,9 +536,46 @@ export function ownEntries(groupChatId: number, userId: number): string[] {
 /** Убрать свою запись по имени (выбор в личке); false — такой записи уже нет. */
 export async function removeOwnByName(groupChatId: number, userId: number, name: string): Promise<boolean> {
   const session = getSession(groupChatId);
-  if (!session) return false;
+  if (!session || !isSignupOpen(session)) return false;
   const index = findOwnIndex(session, userId, name);
   if (index === -1 || session.players[index].displayName.toLowerCase() !== name.toLowerCase()) return false;
   await removePlayerAt(session, index);
   return true;
+}
+
+// ---- Правка списка админом (/удалить, /переименовать, редактор в личке) ----
+
+/** Индекс игрока по «3» (номер в списке) или по имени (последнее совпадение); -1 — не найден. */
+export function findPlayerIndex(session: FootballSession, ref: string): number {
+  const t = ref.trim();
+  if (/^\d+$/.test(t)) {
+    const i = Number(t) - 1;
+    return i >= 0 && i < session.players.length ? i : -1;
+  }
+  const name = t.toLowerCase();
+  for (let i = session.players.length - 1; i >= 0; i--) {
+    const p = session.players[i];
+    const full = (p.lastName ? `${p.displayName} ${p.lastName}` : p.displayName).toLowerCase();
+    if (p.displayName.toLowerCase() === name || full === name) return i;
+  }
+  return -1;
+}
+
+/** Админ убирает любого игрока (и после начала игры — чтобы поправить итоговый состав). */
+export async function adminRemoveAt(session: FootballSession, index: number): Promise<string> {
+  const name = session.players[index].displayName;
+  await removePlayerAt(session, index);
+  return name;
+}
+
+/** Админ переименовывает игрока; null — успех, иначе текст ошибки. */
+export async function adminRenameAt(session: FootballSession, index: number, newName: string): Promise<string | null> {
+  const name = newName.trim();
+  const error = validateNames([name]);
+  if (error) return error;
+  const p = session.players[index];
+  p.displayName = name;
+  delete p.lastName; // фамилия из профиля больше не относится к новому имени
+  await pushRosterUpdate(session);
+  return null;
 }

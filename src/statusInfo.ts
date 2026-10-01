@@ -4,6 +4,8 @@ import * as api from "./maxApi";
 import { currentScheduleText } from "./scheduleLogic";
 import { getArchivedSession, getSession, getVoteSession } from "./store";
 import { FootballSession } from "./types";
+import { computeNextGameDate, isSignupOpen, nextPublicationDate } from "./gameDays";
+import { teamsText } from "./draftLogic";
 
 /**
  * /статус — для всех: актуальна ли запись, на какую игру, сколько мест
@@ -14,7 +16,8 @@ const WEEKDAYS = ["воскресенье", "понедельник", "втор�
 const pad = (n: number) => String(n).padStart(2, "0");
 
 function formatWhen(date: Date): string {
-  return `${WEEKDAYS[date.getDay()]} ${pad(date.getDate())}.${pad(date.getMonth() + 1)} в ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  const sec = date.getSeconds() ? `:${pad(date.getSeconds())}` : ""; // 11:59:59 — с секундами, если они есть
+  return `${WEEKDAYS[date.getDay()]} ${pad(date.getDate())}.${pad(date.getMonth() + 1)} в ${pad(date.getHours())}:${pad(date.getMinutes())}${sec}`;
 }
 
 /** «1 д 3 ч», «2 ч 15 мин», «12 мин». */
@@ -29,13 +32,19 @@ function formatDuration(ms: number): string {
 }
 
 function rosterLines(session: FootballSession): string[] {
-  const main = session.players.filter((p) => !p.isReserve).length;
-  const reserve = session.players.length - main;
-  const free = Math.max(0, config.maxPlayers - main);
-  return [
-    `Основа: ${main} из ${config.maxPlayers}${free ? `, свободно мест: ${free}` : " — мест нет, дальше резерв"}`,
-    `Резерв: ${reserve}`,
+  const main = session.players.filter((p) => !p.isReserve);
+  const reserve = session.players.filter((p) => p.isReserve);
+  const free = Math.max(0, config.maxPlayers - main.length);
+  const name = (p: FootballSession["players"][number]) => (p.lastName ? `${p.displayName} ${p.lastName}` : p.displayName);
+  const lines = [
+    "",
+    `Основа: ${main.length} из ${config.maxPlayers}${free ? `, свободно мест: ${free}` : " — мест нет, дальше резерв"}`,
+    ...(main.length ? main.map((p, i) => `${i + 1}. ${name(p)}`) : ["— пока никого"]),
   ];
+  if (reserve.length) {
+    lines.push("", `Резерв: ${reserve.length}`, ...reserve.map((p, i) => `${main.length + i + 1}. ${name(p)}`));
+  }
+  return lines;
 }
 
 export function buildStatusText(chatId: number, now = Date.now()): string {
@@ -46,28 +55,33 @@ export function buildStatusText(chatId: number, now = Date.now()): string {
   if (session) {
     const game = new Date(session.date);
     const left = game.getTime() - now;
-    if (left > 0) {
+    if (isSignupOpen(session, now)) {
       lines.push(
-        "✅ Запись актуальна — можно записываться («+» или кнопка «Записаться»).",
-        `Игра: ${formatWhen(game)} — через ${formatDuration(left)}.`,
+        `✅ Запись открыта до начала игры — ${formatWhen(game)}, осталось ${formatDuration(left)}.`,
+        "Записаться: «+» или кнопка «➕ Записаться».",
       );
     } else {
       lines.push(
-        "⚠️ Запись устарела: игра уже прошла, новая запись ещё не открыта.",
-        `Игра была: ${formatWhen(game)} — ${formatDuration(left)} назад.`,
+        `🔒 Запись закрыта — игра ${left > -3 * 3_600_000 ? "началась" : "прошла"}: ${formatWhen(game)} (${formatDuration(left)} назад).`,
+        "Состав зафиксирован, менять его может только админ.",
       );
     }
     lines.push(`Запись открыта: ${formatWhen(new Date(session.createdAt))}.`, ...rosterLines(session));
+    const teams = teamsText(session);
+    if (teams) lines.push("", teams);
   } else {
     const last = getArchivedSession(chatId);
     lines.push("⛔ Сейчас записи нет — она закрыта.");
     if (last) lines.push(`Последняя игра: ${formatWhen(new Date(last.date))}, игроков: ${last.players.length}.`);
   }
 
+  const next = nextPublicationDate(new Date(now));
   lines.push(
     "",
     vote ? `🗳 Идёт голосование за MVP — отдано голосов: ${vote.votes.length}.` : "🗳 Голосование за MVP сейчас не идёт.",
-    `🗓 Новая запись публикуется автоматически: ${currentScheduleText()}.`,
+    next
+      ? `🗓 Следующая запись откроется ${formatWhen(next)} — на игру ${formatWhen(computeNextGameDate(next))}. Расписание: ${currentScheduleText()}.`
+      : `🗓 Новая запись публикуется автоматически: ${currentScheduleText()}.`,
   );
   return lines.join("\n");
 }

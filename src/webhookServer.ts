@@ -7,6 +7,8 @@ import * as actions from "./actions";
 import * as adminPanel from "./adminPanel";
 import { buildStatusText } from "./statusInfo";
 import { handleDmUserAction, isDmUserAction } from "./dmMenu";
+import * as rosterEdit from "./rosterEdit";
+import * as draft from "./draftLogic";
 import { DESCRIPTION_RE, handleDescriptionAndReply } from "./descriptionLogic";
 import * as scheduleLogic from "./scheduleLogic";
 import * as voteLogic from "./voteLogic";
@@ -61,7 +63,19 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
 
   // 0) Личный чат с ботом — это панель администратора (кнопки, скрытые от участников).
   if (message.recipient?.chat_type === "dialog") {
+    if (await rosterEdit.handleAwaitedRename(chatId, userId, text)) return;
     if (await scheduleLogic.handleAwaitedTime(chatId, userId, text)) return;
+    // Правка списка общего чата из лички: /удалить 3, /переименовать 3 Имя.
+    const rmDm = text.match(rosterEdit.REMOVE_RE);
+    if (rmDm) {
+      await api.sendMessageToChat(chatId, { text: await rosterEdit.removeCommand(config.defaultChatId, userId, rmDm[2]) });
+      return;
+    }
+    const renDm = text.match(rosterEdit.RENAME_RE);
+    if (renDm) {
+      await api.sendMessageToChat(chatId, { text: await rosterEdit.renameCommand(config.defaultChatId, userId, renDm[2], renDm[3]) });
+      return;
+    }
     // /help в личке: админу — полная инструкция, участнику — его (как и на любой другой текст).
     if (actions.HELP_RE.test(text)) {
       await actions.sendHelp(config.defaultChatId, userId);
@@ -108,6 +122,30 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
 
   // 1.1) Ручной ввод времени на шаге диалога настройки расписания.
   if (await scheduleLogic.handleAwaitedTime(chatId, userId, text)) return;
+
+  // 1.25) Дележка на команды (админ) и /составы (все).
+  const dr = text.match(draft.DRAFT_RE);
+  if (dr) {
+    const reply = await draft.draftCommand(chatId, userId, dr[2]);
+    if (reply) await api.sendMessageToChat(chatId, { text: reply });
+    return;
+  }
+  if (draft.TEAMS_RE.test(text)) {
+    await api.sendMessageToChat(chatId, { text: draft.teamsCommand(chatId) });
+    return;
+  }
+
+  // 1.3) Правка списка админом: /удалить 3 (или имя), /переименовать 3 Новое имя.
+  const rm = text.match(rosterEdit.REMOVE_RE);
+  if (rm) {
+    await api.sendMessageToChat(chatId, { text: await rosterEdit.removeCommand(chatId, userId, rm[2]) });
+    return;
+  }
+  const ren = text.match(rosterEdit.RENAME_RE);
+  if (ren) {
+    await api.sendMessageToChat(chatId, { text: await rosterEdit.renameCommand(chatId, userId, ren[2], ren[3]) });
+    return;
+  }
 
   // 1.4) /описание — своя шапка записи и время игры (только админ).
   const desc = text.match(DESCRIPTION_RE);
@@ -161,6 +199,37 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
     await sessionLogic.handleMinusCommand(chatId, userId, text.slice(1).trim() || undefined);
     return;
   }
+
+  // Незнакомая команда — не молчим, а подсказываем похожую и /help.
+  const unknown = unknownCommandReply(text);
+  if (unknown) await api.sendMessageToChat(chatId, { text: unknown });
+}
+
+// Все команды бота — для подсказки, если команду написали с ошибкой.
+const KNOWN_COMMANDS = [
+  "статус", "mvp", "мвп", "help", "инструкция", "помощь", "составы",
+  "старт", "закрыть", "описание", "расписание", "голосование", "итоги", "объединить",
+  "удалить", "переименовать", "заменить", "дележка", "всем", "мвпСезонныйСброс", "мвпОбщийСброс",
+];
+
+/** «/статс» → «Не знаю команду /статс. Возможно, вы имели в виду /статус. Все команды — /help». */
+export function unknownCommandReply(text: string): string | null {
+  const m = text.match(/^\/([a-zа-яё_]+)/i);
+  if (!m) return null;
+  const word = m[1].toLowerCase();
+  // Расстояние Левенштейна — сколько букв поправить, чтобы получилась известная команда.
+  const dist = (a: string, b: string) => {
+    const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+    for (let j = 1; j <= b.length; j++) d[0][j] = j;
+    for (let i = 1; i <= a.length; i++)
+      for (let j = 1; j <= b.length; j++)
+        d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    return d[a.length][b.length];
+  };
+  const best = KNOWN_COMMANDS.map((c) => ({ c, d: dist(word, c.toLowerCase()) })).sort((x, y) => x.d - y.d)[0];
+  if (best && best.d === 0) return `Команда /${best.c} написана в неверном формате. Как пользоваться — /help.`;
+  const hint = best && best.d <= Math.max(1, Math.floor(word.length / 3)) ? ` Возможно, вы имели в виду /${best.c}.` : "";
+  return `Не знаю команду /${m[1]}.${hint} Все команды — /help.`;
 }
 
 async function handleMessageCallback(update: MaxUpdate): Promise<void> {
@@ -182,6 +251,13 @@ async function handleMessageCallback(update: MaxUpdate): Promise<void> {
   }
 
   // Кнопки в личном чате с ботом — панель администратора (и её диалог расписания).
+  // Редактор списка в личке админа.
+  if (message?.recipient?.chat_type === "dialog" && rosterEdit.isRosterEditAction(action)) {
+    const notification = await rosterEdit.handleEditAction(chatId, pressedByUserId, action, message.body?.mid);
+    await api.answerCallback(chatId, callback.callback_id, { notification });
+    return;
+  }
+
   // Кнопки участника в личке (записаться, статус, рейтинг…) — доступны всем.
   if (message?.recipient?.chat_type === "dialog" && isDmUserAction(action)) {
     const notification = await handleDmUserAction(chatId, callback.user, action, message.body?.mid);
@@ -196,6 +272,13 @@ async function handleMessageCallback(update: MaxUpdate): Promise<void> {
       action,
       message.body?.mid,
     );
+    await api.answerCallback(chatId, callback.callback_id, { notification });
+    return;
+  }
+
+  // Кнопки дележки в общем чате: капитанов назначает админ, игроков выбирает капитан.
+  if (draft.isDraftAction(action) && action.a !== "adm_draft") {
+    const notification = await draft.handleDraftAction(chatId, pressedByUserId, action);
     await api.answerCallback(chatId, callback.callback_id, { notification });
     return;
   }

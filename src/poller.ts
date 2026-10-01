@@ -44,6 +44,7 @@ export async function startPolling(): Promise<void> {
 
   let marker = loadMarker();
   let backoffMs = 1000;
+  let failures = 0;
   console.log(`[poller] приём сообщений через long polling (marker=${marker ?? "нет"})`);
 
   while (running) {
@@ -64,10 +65,17 @@ export async function startPolling(): Promise<void> {
         saveMarker(marker);
       }
       backoffMs = 1000;
+      if (failures > 1) console.log("[poller] связь с MAX восстановлена");
+      failures = 0;
     } catch (err) {
       if (!running) break;
       // Сеть или MAX недоступны — пробуем снова с растущей паузой (до минуты).
-      console.error(`[poller] ошибка получения событий, повтор через ${backoffMs / 1000} с:`, err instanceof Error ? err.message : err);
+      // Разовый сбой (например, сервер закрыл простаивавшее соединение) — норма, это предупреждение;
+      // ошибка — если сбои идут подряд.
+      failures++;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (failures === 1) console.warn(`[poller] разовый сбой связи с MAX, повтор через ${backoffMs / 1000} с: ${msg}`);
+      else console.error(`[poller] нет связи с MAX (${failures}-й сбой подряд), повтор через ${backoffMs / 1000} с: ${msg}`);
       await new Promise((r) => setTimeout(r, backoffMs));
       backoffMs = Math.min(backoffMs * 2, 60_000);
     }

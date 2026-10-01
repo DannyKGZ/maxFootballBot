@@ -115,6 +115,7 @@ export function adminKeyboard(): InlineKeyboardAttachment {
       buttons: [
         ...userMenuRows(),
         [callbackButton("🔄 Новая запись", { a: "admin_restart" }), callbackButton("⏹ Закрыть запись", { a: "adm_close" })],
+        [callbackButton("✏️ Список игроков", { a: "adm_edit" }), callbackButton("⚽ Дележка", { a: "adm_draft" })],
         [callbackButton("🗳 Начать голосование", { a: "adm_vote" }), callbackButton("🏁 Итоги голосования", { a: "adm_finish" })],
         [callbackButton("🗓 Расписание", { a: "adm_schedule" }), callbackButton("🔗 Объединить в рейтинге", { a: "adm_merge" })],
         [

@@ -1,4 +1,5 @@
 export interface Player {
+  id?: string; // постоянный id для кнопок (дележка, редактор); у старых записей появляется сам
   userId: number;
   displayName: string;
   isReserve: boolean;
@@ -21,6 +22,17 @@ export interface FootballSession {
   reminderSent?: boolean; // старый флаг напоминания (до появления notified)
   notified?: string[]; // какие уведомления уже разосланы: "reminder", "pay-3" … "pay+2"
   paymentMessageId?: string | null; // последнее напоминание об оплате — следующее его заменяет
+  closedAt?: number; // запись закрыта, потому что игра началась (список зафиксирован)
+  draft?: Draft; // дележка на команды
+}
+
+/** Дележка: админ выбирает двух капитанов, капитаны по очереди выбирают игроков основы. */
+export interface Draft {
+  stage: "captains" | "picking" | "done";
+  captains: string[]; // ключи игроков (playerKey), 0 — первая команда, 1 — вторая
+  picks: Array<{ k: string; team: 0 | 1 }>;
+  turn: 0 | 1;
+  messageId: string | null;
 }
 
 export type PendingActionType =
@@ -154,6 +166,18 @@ export type ButtonAction =
   | { a: "leave" }
   | { a: "show_mvp" }
   | { a: "show_status" } // /статус кнопкой (в личке с ботом)
+  // Редактор списка в личке админа (k — ключ игрока userId:joinedAt)
+  | { a: "adm_edit" }
+  // Дележка на команды (k — ключ игрока)
+  | { a: "adm_draft" }
+  | { a: "dr_cap"; k: string }
+  | { a: "dr_pick"; k: string }
+  | { a: "dr_cancel" }
+  | { a: "ed_list" }
+  | { a: "ed_close" }
+  | { a: "ed_pick"; k: string }
+  | { a: "ed_del"; k: string }
+  | { a: "ed_ren"; k: string }
   | { a: "dm_rm"; u: number; n: string } // в личке: убрать свою запись с именем n
   | { a: "dm_rm_cancel"; u: number }
   | { a: "help" }

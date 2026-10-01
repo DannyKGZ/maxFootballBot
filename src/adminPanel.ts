@@ -3,6 +3,8 @@ import * as api from "./maxApi";
 import { adminConfirmKeyboard, adminKeyboard, userMenuKeyboard } from "./keyboard";
 import { buildAdminHelp, buildUserWelcome } from "./helpInfo";
 import * as actions from "./actions";
+import { openEditor } from "./rosterEdit";
+import { draftCommand } from "./draftLogic";
 import * as scheduleLogic from "./scheduleLogic";
 import * as sessionLogic from "./sessionLogic";
 import { getSession, getVoteSession } from "./store";
@@ -132,6 +134,15 @@ export async function handlePanelAction(
     case "mvp_reset_no":
       await dropDialog();
       return "Отменено";
+
+    case "adm_draft": {
+      const reply = await draftCommand(group, userId);
+      return reply || "Дележка открыта в общем чате — выберите капитанов там";
+    }
+
+    case "adm_edit":
+      await openEditor(dmChatId);
+      return "Редактор списка ниже";
 
     case "adm_merge": {
       const names = getMvpRating(group).map((e) => `${e.name} — ${e.count} (сезон: ${e.season})`);
