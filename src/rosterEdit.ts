@@ -1,7 +1,7 @@
 import { config } from "./config";
 import * as api from "./maxApi";
 import { InlineKeyboardAttachment, KeyboardButton } from "./maxApi";
-import { adminRemoveAt, adminRenameAt, ensurePlayerIds, findPlayerIndex, isChatAdmin, playerKey } from "./sessionLogic";
+import { adminRemoveAt, adminRenameAt, adminSwap, ensurePlayerIds, findPlayerIndex, isChatAdmin, playerKey } from "./sessionLogic";
 import { getSession } from "./store";
 import { ButtonAction, FootballSession } from "./types";
 
@@ -16,6 +16,8 @@ import { ButtonAction, FootballSession } from "./types";
 
 export const REMOVE_RE = /^\/(удалить|remove)\s+([\s\S]+)$/i;
 export const RENAME_RE = /^\/(переименовать|заменить|rename)\s+(\S+)\s+([\s\S]+)$/i;
+/** «/поменять 1 на 12», «/поменять 1 12», «/поменять 1 и 12» — номера в списке. */
+export const SWAP_RE = /^\/(поменять|swap)\s+(\d+)\s+(?:(?:на|и)\s+)?(\d+)$/i;
 
 const NOT_ADMIN = "Эта команда доступна только администраторам чата.";
 
@@ -45,6 +47,22 @@ export async function renameCommand(groupChatId: number, userId: number, ref: st
   const old = session.players[i].displayName;
   const error = await adminRenameAt(session, i, newName);
   return error ?? `✅ ${i + 1}. ${old} → ${newName.trim()}`;
+}
+
+/** /поменять 1 на 12 → текст ответа. */
+export async function swapCommand(groupChatId: number, userId: number, a: string, b: string): Promise<string> {
+  if (!(await isChatAdmin(groupChatId, userId))) return NOT_ADMIN;
+  const session = getSession(groupChatId);
+  if (!session) return "Сейчас записи нет.";
+  const [i, j] = [Number(a) - 1, Number(b) - 1];
+  const n = session.players.length;
+  if (i === j || i < 0 || j < 0 || i >= n || j >= n) {
+    return `Укажите два разных номера из списка (1–${n}), например: /поменять 1 на 12`;
+  }
+  const [x, y] = [session.players[i], session.players[j]];
+  await adminSwap(session, i, j);
+  const where = (p: typeof x) => (p.isReserve ? "в резерве" : "в основе");
+  return `✅ Поменял местами: ${x.displayName} теперь №${j + 1} (${where(x)}), ${y.displayName} — №${i + 1} (${where(y)}).`;
 }
 
 // ---- Редактор в личке ----

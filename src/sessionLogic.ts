@@ -603,3 +603,13 @@ export async function adminRenameAt(session: FootballSession, index: number, new
   await repostRoster(session);
   return null;
 }
+
+/**
+ * Админ меняет местами двух игроков (например, «1 на 12» — игрока основы с
+ * резервистом). Основа/резерв пересчитываются по новым позициям.
+ */
+export async function adminSwap(session: FootballSession, i: number, j: number): Promise<void> {
+  [session.players[i], session.players[j]] = [session.players[j], session.players[i]];
+  recomputeReserveFlags(session);
+  await repostRoster(session);
+}

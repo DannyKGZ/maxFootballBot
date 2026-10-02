@@ -71,6 +71,11 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
       await api.sendMessageToChat(chatId, { text: await rosterEdit.removeCommand(config.defaultChatId, userId, rmDm[2]) });
       return;
     }
+    const swapDm = text.match(rosterEdit.SWAP_RE);
+    if (swapDm) {
+      await api.sendMessageToChat(chatId, { text: await rosterEdit.swapCommand(config.defaultChatId, userId, swapDm[2], swapDm[3]) });
+      return;
+    }
     const renDm = text.match(rosterEdit.RENAME_RE);
     if (renDm) {
       await api.sendMessageToChat(chatId, { text: await rosterEdit.renameCommand(config.defaultChatId, userId, renDm[2], renDm[3]) });
@@ -141,6 +146,11 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
     await api.sendMessageToChat(chatId, { text: await rosterEdit.removeCommand(chatId, userId, rm[2]) });
     return;
   }
+  const swap = text.match(rosterEdit.SWAP_RE);
+  if (swap) {
+    await api.sendMessageToChat(chatId, { text: await rosterEdit.swapCommand(chatId, userId, swap[2], swap[3]) });
+    return;
+  }
   const ren = text.match(rosterEdit.RENAME_RE);
   if (ren) {
     await api.sendMessageToChat(chatId, { text: await rosterEdit.renameCommand(chatId, userId, ren[2], ren[3]) });
@@ -209,7 +219,7 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
 const KNOWN_COMMANDS = [
   "статус", "mvp", "мвп", "help", "инструкция", "помощь", "составы",
   "старт", "закрыть", "описание", "расписание", "голосование", "итоги", "объединить",
-  "удалить", "переименовать", "заменить", "дележка", "всем", "мвпСезонныйСброс", "мвпОбщийСброс",
+  "удалить", "переименовать", "заменить", "поменять", "дележка", "всем", "мвпСезонныйСброс", "мвпОбщийСброс",
 ];
 
 /** «/статс» → «Не знаю команду /статс. Возможно, вы имели в виду /статус. Все команды — /help». */
