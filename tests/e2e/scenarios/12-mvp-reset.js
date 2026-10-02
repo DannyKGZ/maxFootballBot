@@ -30,7 +30,8 @@ module.exports = {
 
     await t.say(1, "/старт");
     await t.say(2, "+");
-    await win(2, "Ruslan");
+    await t.say(3, "+"); // Рома голосует за Ruslan — за себя голосовать нельзя
+    await win(3, "Ruslan");
     t.ok(t.mvpCount("Ruslan") === 1 && season("Ruslan") === 1, "победа идёт и в общий, и в сезонный счёт");
 
     await t.say(4, "/мвпСезонныйСброс");
@@ -51,7 +52,7 @@ module.exports = {
     const r2 = t.find(/^🏆 Рейтинг MVP/).text;
     t.ok(/Сезон \(с \d\d\.\d\d\.\d{4}\):\nпока никого/.test(r2) && r2.includes("🥇 Рус — 3\n🥈 Ruslan — 1"), "/mvp: новый сезон пуст, всё время на месте", r2);
 
-    await win(2, "Ruslan");
+    await win(3, "Ruslan");
     t.ok(season("Ruslan") === 1 && t.mvpCount("Ruslan") === 2, "в новом сезоне счёт идёт с нуля, общий растёт");
 
     await t.botStarted(1);

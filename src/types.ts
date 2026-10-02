@@ -56,6 +56,9 @@ export interface PendingAction {
 export interface VoteCandidate {
   index: number; // позиция в списке кандидатов, используется как id в payload кнопки
   displayName: string;
+  // Кто записал этого игрока и записал ли он себя (голый «+») — чтобы нельзя было голосовать за себя.
+  ownerId?: number;
+  isSelf?: boolean;
 }
 
 /** Один отданный голос — храним, чтобы все в чате видели, кто за кого проголосовал (п.ТЗ: прозрачность). */

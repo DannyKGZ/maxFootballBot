@@ -13,6 +13,10 @@ import { DESCRIPTION_RE, handleDescriptionAndReply } from "./descriptionLogic";
 import * as scheduleLogic from "./scheduleLogic";
 import * as voteLogic from "./voteLogic";
 import { MaxUpdate } from "./types";
+import { fullName } from "./messageFormatter";
+
+// /голос — показать голосование за MVP (для всех).
+const VOTE_RE = /^\/(голос|vote)$/i;
 
 // /статус — актуальность записи (для всех, в чате и в личке с ботом).
 const STATUS_RE = /^\/(статус|status)$/i;
@@ -128,6 +132,13 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
   // 1.1) Ручной ввод времени на шаге диалога настройки расписания.
   if (await scheduleLogic.handleAwaitedTime(chatId, userId, text)) return;
 
+  // 1.2) /голос — голосование внизу чата (для всех); если его нет — админ запускает.
+  if (VOTE_RE.test(text)) {
+    const reply = await voteLogic.voteCommand(chatId, userId);
+    if (reply) await api.sendMessageToChat(chatId, { text: reply });
+    return;
+  }
+
   // 1.25) Дележка на команды (админ) и /составы (все).
   const dr = text.match(draft.DRAFT_RE);
   if (dr) {
@@ -217,7 +228,7 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
 
 // Все команды бота — для подсказки, если команду написали с ошибкой.
 const KNOWN_COMMANDS = [
-  "статус", "mvp", "мвп", "help", "инструкция", "помощь", "составы",
+  "статус", "голос", "mvp", "мвп", "help", "инструкция", "помощь", "составы",
   "старт", "закрыть", "описание", "расписание", "голосование", "итоги", "объединить",
   "удалить", "переименовать", "заменить", "поменять", "дележка", "всем", "мвпСезонныйСброс", "мвпОбщийСброс",
 ];
@@ -334,9 +345,12 @@ async function handleMessageCallback(update: MaxUpdate): Promise<void> {
           pressedByUserId,
           senderDisplayName(callback.user),
           action.c,
+          fullName(callback.user),
         );
         toast =
-          outcome === "not_eligible"
+          outcome === "self_vote"
+            ? "За себя голосовать нельзя — выберите другого игрока"
+            : outcome === "not_eligible"
             ? "Голосовать может только тот, кто был записан на игру"
             : outcome === "no_credits_left"
               ? "У вас закончились голоса"

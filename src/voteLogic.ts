@@ -70,7 +70,12 @@ export async function startVote(chatId: number, adminUserId: number): Promise<St
 
   // Только основа: резерв не играл — он не кандидат и голосов не даёт.
   const main = session.players.filter((p) => !p.isReserve);
-  const candidates: VoteCandidate[] = main.map((p, index) => ({ index, displayName: p.displayName }));
+  const candidates: VoteCandidate[] = main.map((p, index) => ({
+    index,
+    displayName: p.displayName,
+    ownerId: p.userId,
+    isSelf: Boolean(p.profileName),
+  }));
 
   const vote: VoteSession = {
     chatId,
@@ -95,17 +100,29 @@ export async function startVote(chatId: number, adminUserId: number): Promise<St
 }
 
 export type CastVoteOutcome =
+  | "self_vote"
   | "no_vote"
   | "not_eligible"
   | "no_credits_left"
   | "invalid_candidate"
   | "voted";
 
+/**
+ * Кандидат — это сам голосующий? Своя запись через «+» (по профилю) или под
+ * своим именем. За друзей, которых человек записал, голосовать можно.
+ */
+function isOwnCandidate(c: VoteCandidate, voterId: number, voterNames: string[]): boolean {
+  if (c.ownerId === voterId && c.isSelf) return true;
+  const name = c.displayName.trim().toLowerCase();
+  return (c.ownerId === undefined || c.ownerId === voterId) && voterNames.some((n) => n && n.trim().toLowerCase() === name);
+}
+
 export async function castVote(
   chatId: number,
   voterId: number,
   voterName: string,
   candidateIndex: number,
+  voterFullName = voterName,
 ): Promise<CastVoteOutcome> {
   const vote = getVoteSession(chatId);
   if (!vote) return "no_vote";
@@ -118,6 +135,7 @@ export async function castVote(
 
   const used = vote.votes.filter((v) => v.voterId === voterId).length;
   if (used >= credits) return "no_credits_left";
+  if (isOwnCandidate(candidate, voterId, [voterName, voterFullName])) return "self_vote";
 
   vote.voterNames[voterId] = voterName;
   vote.votes.push({
@@ -129,14 +147,39 @@ export async function castVote(
   });
   setVoteSession(vote);
 
-  if (vote.messageId) {
-    await api.editMessage(chatId, vote.messageId, {
-      text: buildVoteText(vote),
-      attachments: [voteCandidatesKeyboard(vote.candidates, voteCounts(vote))],
-    });
-  }
-
+  await repostVoteMessage(chatId);
   return "voted";
+}
+
+/**
+ * Свежее сообщение голосования внизу чата, старое удаляется (как со списком
+ * записи). Если старое удалить нельзя (старше 24 ч) — снимаем с него кнопки.
+ */
+export async function repostVoteMessage(chatId: number): Promise<boolean> {
+  const vote = getVoteSession(chatId);
+  if (!vote) return false;
+  const old = vote.messageId;
+  const res = await api.sendMessageToChat(chatId, {
+    text: buildVoteText(vote),
+    attachments: [voteCandidatesKeyboard(vote.candidates, voteCounts(vote))],
+  });
+  vote.messageId = res.message.body.mid;
+  setVoteSession(vote);
+  if (old) {
+    await api.deleteMessage(chatId, old).catch(() =>
+      api.editMessage(chatId, old, { text: "🗳 Голосование обновлено — актуальное ниже ⬇️", attachments: [] }).catch(() => undefined),
+    );
+  }
+  return true;
+}
+
+/** /голос: показать голосование внизу чата; если его нет — админ запускает новое. */
+export async function voteCommand(chatId: number, userId: number): Promise<string | null> {
+  if (await repostVoteMessage(chatId)) return null;
+  const outcome = await startVote(chatId, userId);
+  if (outcome === "not_admin") return "Голосование сейчас не идёт — его запускает админ.";
+  if (outcome === "no_session") return "Нет записи с игроками, за которую можно голосовать.";
+  return null;
 }
 
 export type FinishVoteOutcome = "not_admin" | "no_vote" | "finished";
