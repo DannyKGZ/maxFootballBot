@@ -6,6 +6,7 @@ import { createWebhookApp } from "./webhookServer";
 import { startScheduler } from "./scheduler";
 import { startPolling, stopPolling } from "./poller";
 import { refreshRosterOnStartup } from "./sessionLogic";
+import { refreshVoteMessage } from "./voteLogic";
 import { loadSessionsFromDisk, flushSessionsToDiskSync } from "./store";
 import { deleteSubscription, getSubscriptions, registerWebhook, setBotCommands } from "./maxApi";
 import { USER_MENU_COMMANDS } from "./actions";
@@ -79,7 +80,10 @@ async function main(): Promise<void> {
     .catch((err) => console.warn("[bot] не удалось обновить меню команд:", err instanceof Error ? err.message : err));
 
   startScheduler();
-  if (config.defaultChatId) void refreshRosterOnStartup(config.defaultChatId);
+  if (config.defaultChatId) {
+    void refreshRosterOnStartup(config.defaultChatId);
+    void refreshVoteMessage(config.defaultChatId); // текст и кнопки голосования — по текущей версии бота
+  }
 
   const shutdown = (signal: string) => {
     console.log(`[server] получен ${signal}, сохраняю состояние и завершаюсь`);

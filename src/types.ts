@@ -71,13 +71,15 @@ export interface VoteSession {
   chatId: number;
   gameDate: string; // ISO-дата матча, за который идёт голосование (session.date на момент старта)
   candidates: VoteCandidate[];
-  // Сколько голосов доступно каждому: по числу его записей в составе (себя + друзей).
+  // Сколько голосов доступно каждому: по числу его записей в ОСНОВЕ (себя + друзей).
+  // Резерв не играл — он не кандидат и голосов не даёт.
   creditsByVoter: Record<number, number>;
   // Имя голосующего — только для текста уведомлений/лога, на случай отображения.
   voterNames: Record<number, string>;
   votes: VoteRecord[];
   messageId: string | null; // сообщение с кнопками кандидатов и живым логом голосов
   rosterMessageId?: string | null; // сообщение записи той игры — не удаляется при очистке
+  resultsMessageId?: string | null; // «📊 Посмотреть итоги» — новое заменяет прошлое
   createdAt: number;
 }
 
@@ -192,7 +194,8 @@ export type ButtonAction =
   | { a: "adm_mvp_reset"; s: "season" | "all" } // кнопка в панели админа
   | { a: "mvp_reset"; u: number; s: "season" | "all" } // «Да, обнулить»
   | { a: "mvp_reset_no"; u: number }
-  | { a: "mvp_vote"; c: number } // c = VoteCandidate.index — доступна всем, право/лимит проверяются на сервере
+  | { a: "mvp_vote"; c: number }
+  | { a: "mvp_results" } // «📊 Посмотреть итоги» под голосованием // c = VoteCandidate.index — доступна всем, право/лимит проверяются на сервере
   // Диалог настройки расписания (только инициатор-админ, u = его userId)
   | { a: "sch_day"; u: number; d: number } // переключатель дня недели (0=вс..6=сб)
   | { a: "sch_days_ok"; u: number }

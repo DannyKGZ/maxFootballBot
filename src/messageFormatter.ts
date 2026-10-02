@@ -110,27 +110,51 @@ function candidateVoteLine(vote: VoteSession, c: VoteCandidate, count: number): 
   return `${c.displayName} — ${count} ${votesWord(count)}${voters}`;
 }
 
+/** Сколько голосов всего можно отдать: сумма голосов всех голосующих (= игроков основы). */
+export function totalVotes(vote: VoteSession): number {
+  return Object.values(vote.creditsByVoter).reduce((a, b) => a + b, 0);
+}
+
+/** Прогресс-бар из 10 делений: доля голосов кандидата от всех возможных. ▰▰▰▰▱▱▱▱▱▱ */
+export function progressBar(count: number, total: number, width = 10): string {
+  const filled = total > 0 ? Math.min(width, Math.round((count / total) * width)) : 0;
+  return "▰".repeat(filled) + "▱".repeat(width - filled);
+}
+
+/** «Димас ▰▰▰▰▱▱▱▱▱▱ 4» */
+function barLine(vote: VoteSession, c: VoteCandidate, count: number): string {
+  return `${c.displayName} ${progressBar(count, totalVotes(vote))} ${count}`;
+}
+
 /**
- * Живое сообщение голосования: кнопки кандидатов под ним (со счётчиком) и
- * открытый разбор "за кого сколько и кто голосовал" — по ТЗ его видят все,
- * включая тех, кто сам голосовать не может (не был записан на игру).
+ * Живое сообщение голосования: прогресс-бар у каждого, за кого уже голосовали
+ * (шкала — все голоса основы), кнопки кандидатов и «📊 Посмотреть итоги» —
+ * полный расклад с тем, кто за кого голосовал (голосование открытое).
  */
 export function buildVoteText(vote: VoteSession): string {
   const date = new Date(vote.gameDate);
   const weekday = WEEKDAYS_RU[date.getDay()];
   const header = `🏆 Голосование за MVP матча ${weekday} ${formatDateRu(date)} года`;
-  const rules =
-    "Голосовать могут только записанные на игру. Голосов у каждого столько, сколько у него записей (себя и друзей). Нажмите на имя игрока ниже.";
+  const total = totalVotes(vote);
+  const rules = `Голосуют только игроки основы: у каждого столько голосов, сколько у него записей в основе (себя и друзей). Нажмите на имя игрока ниже.`;
 
   const counts = voteCounts(vote);
   const withVotes = vote.candidates
     .filter((c) => (counts[c.index] || 0) > 0)
     .sort((a, b) => counts[b.index] - counts[a.index]);
-  const tally = withVotes.length
-    ? withVotes.map((c) => candidateVoteLine(vote, c, counts[c.index]))
-    : ["Пока никто не голосовал"];
+  const tally = withVotes.length ? withVotes.map((c) => barLine(vote, c, counts[c.index])) : ["Пока никто не голосовал"];
 
-  return [header, rules, "", "Голоса:", ...tally].join("\n");
+  return [header, rules, "", `Отдано голосов: ${vote.votes.length} из ${total}`, ...tally].join("\n");
+}
+
+/** «📊 Посмотреть итоги»: все кандидаты с барами, числом голосов и кто голосовал. */
+export function buildVoteResultsText(vote: VoteSession): string {
+  const ranked = rankCandidates(vote);
+  const lines = ranked.map((c, i) => {
+    const voters = c.count > 0 ? ` · ${votersOf(vote, c.index)}` : "";
+    return `${i + 1}. ${c.displayName}\n${progressBar(c.count, totalVotes(vote))} ${c.count} ${votesWord(c.count)}${voters}`;
+  });
+  return [`📊 Итоги голосования на сейчас — отдано ${vote.votes.length} из ${totalVotes(vote)}`, "", ...lines].join("\n");
 }
 
 /** Голоса по кандидатам, от большего к меньшему (при равенстве — по порядку в списке). */
@@ -166,7 +190,7 @@ export function buildMvpResultText(vote: VoteSession): string {
       ? `Победитель: ${winners[0]} — ${topCount} ${votesWord(topCount)}`
       : `Ничья: ${winners.join(", ")} — по ${topCount} ${votesWord(topCount)}`;
 
-  const resultLines = ranked.map((c, i) => `${i + 1}. ${candidateVoteLine(vote, c, c.count)}`);
+  const resultLines = ranked.map((c, i) => `${i + 1}. ${barLine(vote, c, c.count)}${c.count ? ` · ${votersOf(vote, c.index)}` : ""}`);
 
   return [
     header,

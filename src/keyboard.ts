@@ -199,6 +199,7 @@ export function voteCandidatesKeyboard(
           const n = counts[c.index] || 0;
           return [callbackButton(n > 0 ? `${c.displayName} · ${n}` : c.displayName, { a: "mvp_vote", c: c.index })];
         }),
+        [callbackButton("📊 Посмотреть итоги", { a: "mvp_results" })],
       ],
     },
   };

@@ -3,6 +3,7 @@ import { voteCandidatesKeyboard } from "./keyboard";
 import {
   buildMvpRatingText,
   buildMvpResultText,
+  buildVoteResultsText,
   buildVoteText,
   getVoteWinners,
   voteCounts,
@@ -67,16 +68,15 @@ export async function startVote(chatId: number, adminUserId: number): Promise<St
   const session = pickGameForVote(chatId);
   if (!session) return "no_session";
 
-  const candidates: VoteCandidate[] = session.players.map((p, index) => ({
-    index,
-    displayName: p.displayName,
-  }));
+  // Только основа: резерв не играл — он не кандидат и голосов не даёт.
+  const main = session.players.filter((p) => !p.isReserve);
+  const candidates: VoteCandidate[] = main.map((p, index) => ({ index, displayName: p.displayName }));
 
   const vote: VoteSession = {
     chatId,
     gameDate: session.date,
     candidates,
-    creditsByVoter: buildCredits(session.players.map((p) => p.userId)),
+    creditsByVoter: buildCredits(main.map((p) => p.userId)),
     voterNames: {},
     votes: [],
     messageId: null,
@@ -200,4 +200,27 @@ export function showMvpRating(chatId: number): Promise<void> {
   const task = postMvpRating(chatId).finally(() => ratingInFlight.delete(chatId));
   ratingInFlight.set(chatId, task);
   return task;
+}
+
+/** «📊 Посмотреть итоги» — расклад голосов сообщением в чат (новое заменяет прошлое). */
+export async function showVoteResults(chatId: number): Promise<string> {
+  const vote = getVoteSession(chatId);
+  if (!vote) return "Голосование уже завершено";
+  if (vote.resultsMessageId) await api.deleteMessage(chatId, vote.resultsMessageId).catch(() => undefined);
+  const res = await api.sendMessageToChat(chatId, { text: buildVoteResultsText(vote) });
+  vote.resultsMessageId = res.message.body.mid;
+  setVoteSession(vote);
+  return "Итоги ниже";
+}
+
+/** Перерисовать сообщение голосования (например, после перезапуска с новыми правилами). */
+export async function refreshVoteMessage(chatId: number): Promise<void> {
+  const vote = getVoteSession(chatId);
+  if (!vote?.messageId) return;
+  await api
+    .editMessage(chatId, vote.messageId, {
+      text: buildVoteText(vote),
+      attachments: [voteCandidatesKeyboard(vote.candidates, voteCounts(vote))],
+    })
+    .catch((err) => console.warn("[voteLogic] не удалось обновить сообщение голосования:", err instanceof Error ? err.message : err));
 }
