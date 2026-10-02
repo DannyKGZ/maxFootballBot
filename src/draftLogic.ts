@@ -8,7 +8,7 @@ import { ButtonAction, Draft, FootballSession, Player } from "./types";
  * Дележка на команды:
  *  1. админ пишет /дележка — бот публикует основу кнопками, админ отмечает двух
  *     капитанов (или сразу: /дележка 2 5 — номера в списке);
- *  2. капитаны выбирают игроков основы змейкой (⚪ ⚫ ⚫ ⚪ ⚪ ⚫ …) кнопками
+ *  2. капитаны по очереди, по одному (⚪ ⚫ ⚪ ⚫ …), выбирают игроков основы кнопками
  *     под сообщением; нажать может сам капитан (тот, кто записывался под этим
  *     именем) или админ — если капитана записали «за друга»;
  *  3. когда игроки кончились — бот показывает составы; /составы — показать снова.
@@ -20,12 +20,8 @@ export const TEAMS_RE = /^\/(составы|состав|команды|teams)$/
 
 const TEAM_ICON = ["⚪", "⚫"];
 
-/**
- * Очерёдность «змейкой»: ⚪ ⚫ ⚫ ⚪ ⚪ ⚫ ⚫ ⚪ … — второй капитан компенсирует то,
- * что первый выбирает раньше. По номеру выбора (0, 1, 2, …) — чья очередь.
- */
-const SNAKE: Array<0 | 1> = [0, 1, 1, 0];
-export const turnForPick = (pickIndex: number): 0 | 1 => SNAKE[pickIndex % 4];
+/** Очерёдность по одному: ⚪ ⚫ ⚪ ⚫ … — по номеру выбора (0, 1, 2, …) чья очередь. */
+export const turnForPick = (pickIndex: number): 0 | 1 => (pickIndex % 2 === 0 ? 0 : 1);
 const NOT_ADMIN = "Эта команда доступна только администраторам чата.";
 
 const btn = (text: string, action: ButtonAction): KeyboardButton => ({ type: "callback", text, payload: JSON.stringify(action) });
@@ -40,18 +36,31 @@ function remaining(s: FootballSession, d: Draft): Player[] {
   return mainPlayers(s).filter((p) => !taken.has(playerKey(p)));
 }
 
+/**
+ * Составы столбиком:
+ *   ⚪ Команда 1, Кэп: Руслан
+ *   1. Руслан
+ *   2. Рома
+ *
+ *   ⚫ Команда 2, Кэп: Игорь
+ *   1. Игорь
+ */
 function teamLines(s: FootballSession, d: Draft): string[] {
-  return [0, 1].map((t) => {
+  const lines: string[] = [];
+  for (const t of [0, 1] as const) {
     const members = [d.captains[t], ...d.picks.filter((p) => p.team === t).map((p) => p.k)].filter((k) => byKey(s, k));
-    return `${TEAM_ICON[t]} Команда ${nameOf(s, d.captains[t])} (${members.length}): ${members.map((k) => nameOf(s, k)).join(", ")}`;
-  });
+    if (t === 1) lines.push("");
+    lines.push(`${TEAM_ICON[t]} Команда ${t + 1}, Кэп: ${nameOf(s, d.captains[t])}`);
+    members.forEach((k, i) => lines.push(`${i + 1}. ${nameOf(s, k)}`));
+  }
+  return lines;
 }
 
 /** Текст составов (для /составы и /статус); null — дележки ещё не было. */
 export function teamsText(s: FootballSession): string | null {
   const d = s.draft;
   if (!d || d.stage === "captains") return null;
-  return [d.stage === "done" ? "⚽ Составы:" : "⚽ Идёт дележка:", ...teamLines(s, d)].join("\n");
+  return [d.stage === "done" ? "⚽ Составы:" : "⚽ Идёт дележка:", "", ...teamLines(s, d)].join("\n");
 }
 
 function render(s: FootballSession): { text: string; attachments: InlineKeyboardAttachment[] } {
@@ -73,15 +82,15 @@ function render(s: FootballSession): { text: string; attachments: InlineKeyboard
     return {
       text: [
         "⚽ Дележка на команды",
+        "",
         ...teamLines(s, d),
         "",
-        `Выбирает ${TEAM_ICON[d.turn]} ${nameOf(s, d.captains[d.turn])} — нажмите на игрока.`,
-        "Порядок змейкой: ⚪ ⚫ ⚫ ⚪ ⚪ ⚫ …",
+        `Выбирает ${TEAM_ICON[d.turn]} Команда ${d.turn + 1} (кэп ${nameOf(s, d.captains[d.turn])}) — нажмите на игрока.`,
       ].join("\n"),
       attachments: [kb([...left.map((p) => [btn(p.displayName, { a: "dr_pick", k: playerKey(p) })]), cancel])],
     };
   }
-  return { text: ["⚽ Составы готовы!", ...teamLines(s, d)].join("\n"), attachments: [] };
+  return { text: ["⚽ Составы готовы!", "", ...teamLines(s, d)].join("\n"), attachments: [] };
 }
 
 async function show(s: FootballSession): Promise<void> {
@@ -180,7 +189,7 @@ export async function handleDraftAction(chatId: number, userId: number, action: 
     const captain = byKey(s, d.captains[d.turn]);
     const isCaptain = captain?.userId === userId;
     if (!isCaptain && !(await isChatAdmin(chatId, userId))) {
-      return `Сейчас выбирает ${TEAM_ICON[d.turn]} ${captain?.displayName ?? "капитан"}`;
+      return `Сейчас выбирает ${TEAM_ICON[d.turn]} кэп ${captain?.displayName ?? "второй команды"}`;
     }
     if (!remaining(s, d).some((p) => playerKey(p) === action.k)) return "Этот игрок уже выбран";
     d.picks.push({ k: action.k, team: d.turn });
