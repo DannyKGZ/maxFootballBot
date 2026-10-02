@@ -126,35 +126,30 @@ function barLine(vote: VoteSession, c: VoteCandidate, count: number): string {
   return `${c.displayName} ${progressBar(count, totalVotes(vote))} ${count}`;
 }
 
+/** Голосующие с отметками: 🔴 — ещё не голосовал, ✅ — проголосовал (и за кого). */
+function voterLines(vote: VoteSession): string[] {
+  return Object.entries(vote.creditsByVoter).map(([id, credits]) => {
+    const voterId = Number(id);
+    const name = vote.voterNames[voterId] ?? "игрок";
+    const mine = vote.votes.filter((v) => v.voterId === voterId);
+    if (mine.length === 0) return `🔴 ${name}${credits > 1 ? ` — голосов: ${credits}` : ""}`;
+    const left = credits - mine.length;
+    return `✅ ${name} → ${mine.map((v) => v.candidateName).join(", ")}${left > 0 ? ` (ещё ${left})` : ""}`;
+  });
+}
+
 /**
- * Живое сообщение голосования: прогресс-бар у каждого, за кого уже голосовали
- * (шкала — все голоса основы), кнопки кандидатов и «📊 Посмотреть итоги» —
- * полный расклад с тем, кто за кого голосовал (голосование открытое).
+ * Живое сообщение голосования: кто уже проголосовал (✅, и за кого) и кто ещё
+ * нет (🔴). Счёт и прогресс-бар — прямо на кнопках кандидатов. После каждого
+ * голоса бот присылает свежее сообщение внизу чата.
  */
 export function buildVoteText(vote: VoteSession): string {
   const date = new Date(vote.gameDate);
   const weekday = WEEKDAYS_RU[date.getDay()];
   const header = `🏆 Голосование за MVP матча ${weekday} ${formatDateRu(date)} года`;
-  const total = totalVotes(vote);
-  const rules = `Голосуют только игроки основы: у каждого столько голосов, сколько у него записей в основе (себя и друзей). Нажмите на имя игрока ниже.`;
-
-  const counts = voteCounts(vote);
-  const withVotes = vote.candidates
-    .filter((c) => (counts[c.index] || 0) > 0)
-    .sort((a, b) => counts[b.index] - counts[a.index]);
-  const tally = withVotes.length ? withVotes.map((c) => barLine(vote, c, counts[c.index])) : ["Пока никто не голосовал"];
-
-  return [header, rules, "", `Отдано голосов: ${vote.votes.length} из ${total}`, ...tally].join("\n");
-}
-
-/** «📊 Посмотреть итоги»: все кандидаты с барами, числом голосов и кто голосовал. */
-export function buildVoteResultsText(vote: VoteSession): string {
-  const ranked = rankCandidates(vote);
-  const lines = ranked.map((c, i) => {
-    const voters = c.count > 0 ? ` · ${votersOf(vote, c.index)}` : "";
-    return `${i + 1}. ${c.displayName}\n${progressBar(c.count, totalVotes(vote))} ${c.count} ${votesWord(c.count)}${voters}`;
-  });
-  return [`📊 Итоги голосования на сейчас — отдано ${vote.votes.length} из ${totalVotes(vote)}`, "", ...lines].join("\n");
+  const rules =
+    "Голосуют только игроки основы: у каждого столько голосов, сколько у него записей в основе (себя и друзей). За себя голосовать нельзя. Нажмите на игрока ниже.";
+  return [header, rules, "", `Отдано голосов: ${vote.votes.length} из ${totalVotes(vote)}`, ...voterLines(vote)].join("\n");
 }
 
 /** Голоса по кандидатам, от большего к меньшему (при равенстве — по порядку в списке). */

@@ -1,5 +1,6 @@
 import { ButtonAction, VoteCandidate } from "./types";
 import { InlineKeyboardAttachment, KeyboardButton } from "./maxApi";
+import { progressBar } from "./messageFormatter";
 
 function encodePayload(action: ButtonAction): string {
   return JSON.stringify(action);
@@ -190,17 +191,16 @@ export function confirmCloseKeyboard(adminUserId: number): InlineKeyboardAttachm
 export function voteCandidatesKeyboard(
   candidates: VoteCandidate[],
   counts: Record<number, number> = {},
+  total = 0,
 ): InlineKeyboardAttachment {
+  // Счёт прямо на кнопках: «Витя ▰▰▱▱▱▱▱▱▱▱ 2» — шкала из всех голосов основы.
   return {
     type: "inline_keyboard",
     payload: {
-      buttons: [
-        ...candidates.map((c) => {
-          const n = counts[c.index] || 0;
-          return [callbackButton(n > 0 ? `${c.displayName} · ${n}` : c.displayName, { a: "mvp_vote", c: c.index })];
-        }),
-        [callbackButton("📊 Посмотреть итоги", { a: "mvp_results" })],
-      ],
+      buttons: candidates.map((c) => {
+        const n = counts[c.index] || 0;
+        return [callbackButton(`${c.displayName} ${progressBar(n, total)} ${n}`, { a: "mvp_vote", c: c.index })];
+      }),
     },
   };
 }

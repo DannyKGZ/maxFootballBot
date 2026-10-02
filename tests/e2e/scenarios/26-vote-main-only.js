@@ -10,7 +10,8 @@ module.exports = {
     await t.say(4, "+"); // 5. Влад — резерв
     await t.say(1, "/голосование");
     const v = t.find(/Голосование за MVP/);
-    t.ok(t.buttons(v).join("|") === "Ruslan|Рома|Петя|📊 Посмотреть итоги", "кандидаты — только основа (3), без резерва", t.buttons(v));
+    t.ok(t.buttons(v).map((b) => b.split(" ")[0]).join("|") === "Ruslan|Рома|Петя", "кандидаты — только основа (3), без резерва", t.buttons(v));
+    t.ok(v.text.includes("🔴 Ruslan — голосов: 2") && v.text.includes("🔴 Рома") && !v.text.includes("Влад"), "голосующие — только основа, 🔴 пока не голосовали", v.text);
     t.ok(v.text.includes("Отдано голосов: 0 из 3"), "всего голосов = игроков основы", v.text);
 
     await t.click(4, v, "Рома");
@@ -23,7 +24,9 @@ module.exports = {
     t.ok(t.toast().startsWith("За себя голосовать нельзя"), "Рома не может голосовать за себя (запись через «+»)");
     await t.click(3, t.find(/Голосование за MVP/), "Петя");
     const text = t.find(/Голосование за MVP/).text;
-    t.ok(text.includes("Отдано голосов: 3 из 3") && text.includes("Петя ▰▰▰▰▰▰▰▱▱▱ 2") && text.includes("Рома ▰▰▰▱▱▱▱▱▱▱ 1"), "бары на шкале из 3 голосов", text);
+    const btns = t.buttons(t.find(/Голосование за MVP/));
+    t.ok(text.includes("Отдано голосов: 3 из 3") && btns.includes("Петя ▰▰▰▰▰▰▰▱▱▱ 2") && btns.includes("Рома ▰▰▰▱▱▱▱▱▱▱ 1"), "бары на кнопках, шкала из 3 голосов", btns);
+    t.ok(text.includes("✅ Ruslan → Рома, Петя") && text.includes("✅ Рома → Петя"), "у каждого ✅ и за кого он проголосовал", text);
 
     // Голосование всегда внизу чата и в одном экземпляре.
     const last = () => t.all().slice(-1)[0];

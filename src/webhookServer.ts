@@ -336,8 +336,8 @@ async function handleMessageCallback(update: MaxUpdate): Promise<void> {
       case "adm_schedule":
         toast = (await actions.schedule(chatId, pressedByUserId)).toast;
         break;
-      case "mvp_results":
-        toast = await voteLogic.showVoteResults(chatId);
+      case "mvp_results": // кнопка из старых сообщений голосования — итоги теперь на кнопках
+        toast = "Счёт — прямо на кнопках, кто за кого — в сообщении голосования";
         break;
       case "mvp_vote": {
         const outcome = await voteLogic.castVote(

@@ -82,7 +82,6 @@ export interface VoteSession {
   votes: VoteRecord[];
   messageId: string | null; // сообщение с кнопками кандидатов и живым логом голосов
   rosterMessageId?: string | null; // сообщение записи той игры — не удаляется при очистке
-  resultsMessageId?: string | null; // «📊 Посмотреть итоги» — новое заменяет прошлое
   createdAt: number;
 }
 

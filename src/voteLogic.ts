@@ -3,9 +3,9 @@ import { voteCandidatesKeyboard } from "./keyboard";
 import {
   buildMvpRatingText,
   buildMvpResultText,
-  buildVoteResultsText,
   buildVoteText,
   getVoteWinners,
+  totalVotes,
   voteCounts,
 } from "./messageFormatter";
 import { isChatAdmin } from "./sessionLogic";
@@ -82,7 +82,7 @@ export async function startVote(chatId: number, adminUserId: number): Promise<St
     gameDate: session.date,
     candidates,
     creditsByVoter: buildCredits(main.map((p) => p.userId)),
-    voterNames: {},
+    voterNames: voterNamesFrom(main),
     votes: [],
     messageId: null,
     rosterMessageId: session.messageId,
@@ -91,7 +91,7 @@ export async function startVote(chatId: number, adminUserId: number): Promise<St
 
   const res = await api.sendMessageToChat(chatId, {
     text: buildVoteText(vote),
-    attachments: [voteCandidatesKeyboard(candidates)],
+    attachments: [voteKeyboard(vote)],
   });
   vote.messageId = res.message.body.mid;
   setVoteSession(vote);
@@ -106,6 +106,35 @@ export type CastVoteOutcome =
   | "no_credits_left"
   | "invalid_candidate"
   | "voted";
+
+/** Кнопки кандидатов с текущим счётом и прогресс-баром. */
+function voteKeyboard(vote: VoteSession) {
+  return voteCandidatesKeyboard(vote.candidates, voteCounts(vote), totalVotes(vote));
+}
+
+/**
+ * Как подписать голосующего в списке «🔴/✅»: своя запись (через «+») — её имя,
+ * иначе имя того, кто записывал друзей.
+ */
+function voterNamesFrom(players: FootballSession["players"]): Record<number, string> {
+  const names: Record<number, string> = {};
+  for (const p of players) {
+    if (p.profileName) names[p.userId] = p.displayName;
+    else names[p.userId] ??= p.addedByName ?? p.addedByFullName ?? p.displayName;
+  }
+  return names;
+}
+
+/** Голосованию, начатому старой версией бота, — имена всех голосующих (а не только проголосовавших). */
+function ensureVoterNames(vote: VoteSession): void {
+  const missing = Object.keys(vote.creditsByVoter).some((id) => !vote.voterNames[Number(id)]);
+  if (!missing) return;
+  const game = [getSession(vote.chatId), getArchivedSession(vote.chatId)].find((s) => s?.date === vote.gameDate);
+  if (!game) return;
+  const derived = voterNamesFrom(game.players.filter((p) => !p.isReserve));
+  for (const id of Object.keys(vote.creditsByVoter)) vote.voterNames[Number(id)] ??= derived[Number(id)];
+  setVoteSession(vote);
+}
 
 /**
  * Кандидат — это сам голосующий? Своя запись через «+» (по профилю) или под
@@ -137,7 +166,7 @@ export async function castVote(
   if (used >= credits) return "no_credits_left";
   if (isOwnCandidate(candidate, voterId, [voterName, voterFullName])) return "self_vote";
 
-  vote.voterNames[voterId] = voterName;
+  vote.voterNames[voterId] ??= voterName;
   vote.votes.push({
     voterId,
     voterName,
@@ -158,10 +187,11 @@ export async function castVote(
 export async function repostVoteMessage(chatId: number): Promise<boolean> {
   const vote = getVoteSession(chatId);
   if (!vote) return false;
+  ensureVoterNames(vote);
   const old = vote.messageId;
   const res = await api.sendMessageToChat(chatId, {
     text: buildVoteText(vote),
-    attachments: [voteCandidatesKeyboard(vote.candidates, voteCounts(vote))],
+    attachments: [voteKeyboard(vote)],
   });
   vote.messageId = res.message.body.mid;
   setVoteSession(vote);
@@ -245,25 +275,15 @@ export function showMvpRating(chatId: number): Promise<void> {
   return task;
 }
 
-/** «📊 Посмотреть итоги» — расклад голосов сообщением в чат (новое заменяет прошлое). */
-export async function showVoteResults(chatId: number): Promise<string> {
-  const vote = getVoteSession(chatId);
-  if (!vote) return "Голосование уже завершено";
-  if (vote.resultsMessageId) await api.deleteMessage(chatId, vote.resultsMessageId).catch(() => undefined);
-  const res = await api.sendMessageToChat(chatId, { text: buildVoteResultsText(vote) });
-  vote.resultsMessageId = res.message.body.mid;
-  setVoteSession(vote);
-  return "Итоги ниже";
-}
-
 /** Перерисовать сообщение голосования (например, после перезапуска с новыми правилами). */
 export async function refreshVoteMessage(chatId: number): Promise<void> {
   const vote = getVoteSession(chatId);
   if (!vote?.messageId) return;
+  ensureVoterNames(vote);
   await api
     .editMessage(chatId, vote.messageId, {
       text: buildVoteText(vote),
-      attachments: [voteCandidatesKeyboard(vote.candidates, voteCounts(vote))],
+      attachments: [voteKeyboard(vote)],
     })
     .catch((err) => console.warn("[voteLogic] не удалось обновить сообщение голосования:", err instanceof Error ? err.message : err));
 }
