@@ -1,5 +1,5 @@
 import express, { Request, Response } from "express";
-import { config } from "./config";
+import { config, isManagedChat } from "./config";
 import * as api from "./maxApi";
 import { decodePayload } from "./keyboard";
 import * as sessionLogic from "./sessionLogic";
@@ -8,6 +8,7 @@ import * as adminPanel from "./adminPanel";
 import { buildStatusText } from "./statusInfo";
 import { NICK_RE, handleAwaitedNick, handleDmUserAction, isDmUserAction, nickCommand } from "./dmMenu";
 import * as rosterEdit from "./rosterEdit";
+import { dmTarget } from "./dmTarget";
 import * as draft from "./draftLogic";
 import { DESCRIPTION_RE, handleDescriptionAndReply } from "./descriptionLogic";
 import * as scheduleLogic from "./scheduleLogic";
@@ -60,14 +61,18 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
     return;
   }
 
-  // Подсказка при подключении к новому чату: его chat_id нигде в MAX не показывается.
-  if (message.recipient?.chat_type !== "dialog" && chatId !== config.defaultChatId) {
-    console.log(`[webhook] сообщение из чата chat_id=${chatId} (в .env CHAT_ID=${config.defaultChatId})`);
+  // Группа, которую бот не ведёт: не отвечаем, но пишем её chat_id в лог —
+  // так его узнают, чтобы добавить чат в CHAT_IDS (в MAX он нигде не виден).
+  if (message.recipient?.chat_type !== "dialog" && !isManagedChat(chatId)) {
+    console.log(`[webhook] сообщение из чата chat_id=${chatId} — его нет в CHAT_IDS (${config.chatIds.join(",")}), не отвечаю`);
+    return;
   }
 
   // 0) Личный чат с ботом — это панель администратора (кнопки, скрытые от участников).
   if (message.recipient?.chat_type === "dialog") {
     if (await handleAwaitedNick(chatId, userId, text)) return;
+    // Команды из лички действуют на чат, выбранный человеком (см. dmTarget.ts).
+    const target = await dmTarget(userId);
     if (await rosterEdit.handleAwaitedRename(chatId, userId, text)) return;
     if (await scheduleLogic.handleAwaitedTime(chatId, userId, text)) return;
     // /имя Новое имя — своё имя в списке.
@@ -79,52 +84,52 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
     // Правка списка общего чата из лички: /удалить 3, /переименовать 3 Имя.
     const rmDm = text.match(rosterEdit.REMOVE_RE);
     if (rmDm) {
-      await api.sendMessageToChat(chatId, { text: await rosterEdit.removeCommand(config.defaultChatId, userId, rmDm[2]) });
+      await api.sendMessageToChat(chatId, { text: await rosterEdit.removeCommand(target, userId, rmDm[2]) });
       return;
     }
     const swapDm = text.match(rosterEdit.SWAP_RE);
     if (swapDm) {
-      await api.sendMessageToChat(chatId, { text: await rosterEdit.swapCommand(config.defaultChatId, userId, swapDm[2], swapDm[3]) });
+      await api.sendMessageToChat(chatId, { text: await rosterEdit.swapCommand(target, userId, swapDm[2], swapDm[3]) });
       return;
     }
     const renDm = text.match(rosterEdit.RENAME_RE);
     if (renDm) {
-      await api.sendMessageToChat(chatId, { text: await rosterEdit.renameCommand(config.defaultChatId, userId, renDm[2], renDm[3]) });
+      await api.sendMessageToChat(chatId, { text: await rosterEdit.renameCommand(target, userId, renDm[2], renDm[3]) });
       return;
     }
     // /help в личке: админу — полная инструкция, участнику — его (как и на любой другой текст).
     if (actions.HELP_RE.test(text)) {
-      await actions.sendHelp(config.defaultChatId, userId);
+      await actions.sendHelp(target, userId);
       return;
     }
-    // /описание в личке — меняет запись общего чата (CHAT_ID), ответ сюда же.
+    // /описание в личке — меняет запись выбранного чата, ответ сюда же.
     const descDm = text.match(DESCRIPTION_RE);
     if (descDm) {
-      await handleDescriptionAndReply(config.defaultChatId, chatId, userId, descDm[2]);
+      await handleDescriptionAndReply(target, chatId, userId, descDm[2]);
       return;
     }
-    // /статус в личке — статус записи общего чата (CHAT_ID), ответ сюда же.
+    // /статус в личке — статус записи выбранного чата, ответ сюда же.
     if (STATUS_RE.test(text)) {
-      await api.sendMessageToChat(chatId, { text: buildStatusText(config.defaultChatId) });
+      await api.sendMessageToChat(chatId, { text: buildStatusText(target) });
       return;
     }
     const merge = text.match(actions.MERGE_RE);
     if (merge) {
-      const result = await actions.mergeMvp(config.defaultChatId, userId, merge[2], merge[3]);
+      const result = await actions.mergeMvp(target, userId, merge[2], merge[3]);
       if (result.chat) await api.sendMessageToChat(chatId, { text: result.chat });
       return;
     }
-    // Сброс рейтинга MVP группы CHAT_ID — подтверждение приходит сюда же, в личку.
+    // Сброс рейтинга MVP выбранного чата — подтверждение приходит сюда же, в личку.
     const resetDm = actions.MVP_RESET_RE.find((r) => r.re.test(text));
     if (resetDm) {
-      const result = await actions.requestMvpReset(config.defaultChatId, chatId, userId, resetDm.scope);
+      const result = await actions.requestMvpReset(target, chatId, userId, resetDm.scope);
       if (result.chat) await api.sendMessageToChat(chatId, { text: result.chat });
       return;
     }
-    // «/Всем …» в личке — упоминание всех участников группы CHAT_ID.
+    // «/Всем …» в личке — упоминание всех участников выбранного чата.
     const all = text.match(actions.MENTION_ALL_RE);
     if (all) {
-      const result = await actions.mentionAll(config.defaultChatId, userId, all[1], { allowEmpty: text.startsWith("@") });
+      const result = await actions.mentionAll(target, userId, all[1], { allowEmpty: text.startsWith("@") });
       await api.sendMessageToChat(chatId, { text: result.chat ?? "Отправлено в общий чат." });
       return;
     }
@@ -279,6 +284,11 @@ async function handleMessageCallback(update: MaxUpdate): Promise<void> {
   console.log(
     `[webhook] handleMessageCallback: chatId=${chatId}, pressedByUserId=${pressedByUserId}, payload=${callback.payload}`,
   );
+
+  if (message?.recipient?.chat_type !== "dialog" && !isManagedChat(chatId)) {
+    await api.answerCallback(chatId, callback.callback_id, { notification: "Этот чат бот больше не ведёт" });
+    return;
+  }
 
   if (!action) {
     await api.answerCallback(chatId, callback.callback_id, { notification: "Готово" });

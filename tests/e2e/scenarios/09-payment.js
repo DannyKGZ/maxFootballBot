@@ -7,6 +7,7 @@ const at = (offset) => new Date(Date.now() + offset).toISOString();
 const player = (userId, displayName, extra = {}) => ({ userId, displayName, isReserve: false, joinedAt: 0, ...extra });
 
 const ENV = {
+  CHAT_IDS: "-1,-2,-3", // три чата — у каждого свои уведомления
   REMINDER_HOURS_BEFORE: "5",
   PAYMENT_HOURS_BEFORE: "3",
   PAYMENT_HOURS_AFTER: "2",
@@ -63,7 +64,9 @@ module.exports = {
     t.ok(t.count(/^💰/, -1) === 1 && t.count(/^💰/, -3) === 1 && t.count(/^⏰/, -2) === 1, "после перезапуска уведомления не повторяются");
 
     // Расписание слотов во времени — чистой функцией из dist (без ожидания часами).
-    Object.assign(process.env, ENV, { BOT_TOKEN: "test", DOTENV_CONFIG_PATH: "/nonexistent" });
+    // CHAT_IDS не переносим: process.env общий, следующие сценарии получили бы три чата.
+    const { CHAT_IDS, ...envForDist } = ENV;
+    Object.assign(process.env, envForDist, { BOT_TOKEN: "test", DOTENV_CONFIG_PATH: "/nonexistent" });
     const { dueNotifications } = require("../../../dist/notifications");
     const game = Date.parse("2026-10-07T18:30:00Z");
     const s = { chatId: 1, messageId: null, createdAt: 0, date: new Date(game).toISOString(), players: [player(1, "A")] };

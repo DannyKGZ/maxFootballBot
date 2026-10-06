@@ -3,6 +3,7 @@ import * as api from "./maxApi";
 import { adminConfirmKeyboard, adminKeyboard, userMenuKeyboard } from "./keyboard";
 import { buildAdminHelp, buildUserWelcome } from "./helpInfo";
 import * as actions from "./actions";
+import { chatSwitchRow, chatTitle, dmTarget } from "./dmTarget";
 import { openEditor } from "./rosterEdit";
 import { draftCommand } from "./draftLogic";
 import * as scheduleLogic from "./scheduleLogic";
@@ -19,28 +20,31 @@ import { getMvpRating } from "./settingsStore";
  * (CHAT_ID из .env). Права проверяются у MAX при каждом нажатии.
  */
 
-const groupChatId = () => config.defaultChatId;
+// Чат, которым управляют из лички, — свой у каждого (см. dmTarget.ts).
 
-function statusText(): string {
-  const session = getSession(groupChatId());
-  const vote = getVoteSession(groupChatId());
+async function statusText(group: number): Promise<string> {
+  const session = getSession(group);
+  const vote = getVoteSession(group);
   const signup = session ? `идёт, записано ${session.players.length}` : "нет";
   const voting = vote ? `идёт, голосов ${vote.votes.length}` : "нет";
-  return `⚙️ Панель администратора\nЗапись: ${signup}\nГолосование: ${voting}\n\nДействия выполняются в общем чате.`;
+  return `⚙️ Панель администратора — ${await chatTitle(group)}\nЗапись: ${signup}\nГолосование: ${voting}\n\nДействия выполняются в этом чате.`;
 }
 
 /** Показывает панель в личке; не-админу — отказ. */
 export async function sendPanel(dmChatId: number, userId: number): Promise<void> {
-  if (!groupChatId()) {
-    await api.sendMessageToChat(dmChatId, { text: "CHAT_ID не задан в .env — не знаю, каким чатом управлять." });
+  const group = await dmTarget(userId);
+  if (!group) {
+    await api.sendMessageToChat(dmChatId, { text: "CHAT_IDS (CHAT_ID) не задан в .env — не знаю, каким чатом управлять." });
     return;
   }
-  if (!(await sessionLogic.isChatAdmin(groupChatId(), userId))) {
+  const switchRow = await chatSwitchRow(userId);
+  if (!(await sessionLogic.isChatAdmin(group, userId))) {
     // Участнику в личке — приветствие, его статус и кнопки меню (панель только для админов).
-    await api.sendMessageToChat(dmChatId, { text: buildUserWelcome(groupChatId(), userId), attachments: [userMenuKeyboard()] });
+    const header = config.chatIds.length > 1 ? `Чат: ${await chatTitle(group)}\n\n` : "";
+    await api.sendMessageToChat(dmChatId, { text: header + buildUserWelcome(group, userId), attachments: [userMenuKeyboard(switchRow)] });
     return;
   }
-  await api.sendMessageToChat(dmChatId, { text: statusText(), attachments: [adminKeyboard()] });
+  await api.sendMessageToChat(dmChatId, { text: await statusText(group), attachments: [adminKeyboard(switchRow)] });
 }
 
 /** Опасное действие при непустой записи — спрашиваем в личке, а не в группе. */
@@ -62,8 +66,8 @@ export async function handlePanelAction(
   action: ButtonAction,
   dialogMessageId?: string,
 ): Promise<string> {
-  const group = groupChatId();
-  if (!group) return "CHAT_ID не задан в .env";
+  const group = await dmTarget(userId);
+  if (!group) return "CHAT_IDS (CHAT_ID) не задан в .env";
   if (!(await sessionLogic.isChatAdmin(group, userId))) return "Только для администраторов чата";
 
   const players = getSession(group)?.players.length ?? 0;
@@ -141,7 +145,7 @@ export async function handlePanelAction(
     }
 
     case "adm_edit":
-      await openEditor(dmChatId);
+      await openEditor(dmChatId, group);
       return "Редактор списка ниже";
 
     case "adm_merge": {

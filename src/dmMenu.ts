@@ -6,6 +6,8 @@ import { buildMvpRatingText } from "./messageFormatter";
 import { joinSelf, ownEntries, removeOwnByName, setOwnNickname } from "./sessionLogic";
 import { getMvpRating, getNickname, getSeasonStart } from "./settingsStore";
 import { buildStatusText } from "./statusInfo";
+import { chatChoiceRows, chatSwitchRow, chatTitle, dmTarget, setDmTarget, userChats } from "./dmTarget";
+import { sendPanel } from "./adminPanel";
 import { ButtonAction, MaxUser } from "./types";
 
 /**
@@ -14,7 +16,7 @@ import { ButtonAction, MaxUser } from "./types";
  * общего чата CHAT_ID; ответы приходят сюда же, в личку.
  */
 
-const DM_USER_ACTIONS = new Set(["join", "leave", "show_status", "show_mvp", "help", "dm_rm", "dm_rm_cancel", "nick"]);
+const DM_USER_ACTIONS = new Set(["join", "leave", "show_status", "show_mvp", "help", "dm_rm", "dm_rm_cancel", "nick", "dm_chat", "dm_chat_set"]);
 
 /** «/имя Руслан Большой» (в чате или в личке) — своё имя в списке. */
 export const NICK_RE = /^\/(имя|name)(?:\s+([\s\S]+))?$/i;
@@ -24,7 +26,7 @@ const awaitingNick = new Set<string>();
 
 /** Ответ на /имя или на присланное после кнопки имя. */
 async function applyNick(userId: number, name: string): Promise<string> {
-  const error = await setOwnNickname(config.defaultChatId, userId, name);
+  const error = await setOwnNickname(userId, name);
   return error ?? `✅ Готово! Теперь в списке вы — «${name.trim()}». Так бот будет записывать вас и дальше.`;
 }
 
@@ -42,7 +44,7 @@ export async function handleAwaitedNick(dmChatId: number, userId: number, text: 
   const key = `${dmChatId}:${userId}`;
   if (!awaitingNick.has(key) || text.startsWith("/")) return false;
   awaitingNick.delete(key);
-  await api.sendMessageToChat(dmChatId, { text: await applyNick(userId, text), attachments: [userMenuKeyboard()] });
+  await api.sendMessageToChat(dmChatId, { text: await applyNick(userId, text), attachments: [userMenuKeyboard(await chatSwitchRow(userId))] });
   return true;
 }
 
@@ -57,8 +59,9 @@ export async function handleDmUserAction(
   action: ButtonAction,
   dialogMessageId?: string,
 ): Promise<string> {
-  const group = config.defaultChatId;
-  if (!group) return "CHAT_ID не задан в .env";
+  const group = await dmTarget(user.user_id);
+  if (!group) return "CHAT_IDS (CHAT_ID) не задан в .env";
+  const menu = async () => userMenuKeyboard(await chatSwitchRow(user.user_id));
   const dropDialog = () => (dialogMessageId ? api.deleteMessage(dmChatId, dialogMessageId).catch(() => undefined) : undefined);
 
   switch (action.a) {
@@ -88,16 +91,26 @@ export async function handleDmUserAction(
       await dropDialog();
       return "Отменено";
     case "show_status":
-      await api.sendMessageToChat(dmChatId, { text: buildStatusText(group), attachments: [userMenuKeyboard()] });
+      await api.sendMessageToChat(dmChatId, { text: buildStatusText(group), attachments: [await menu()] });
       return "Статус ниже";
     case "show_mvp":
       await api.sendMessageToChat(dmChatId, {
         text: buildMvpRatingText(getMvpRating(group), getSeasonStart(group)),
-        attachments: [userMenuKeyboard()],
+        attachments: [await menu()],
       });
       return "Рейтинг ниже";
     case "help":
       return (await actions.sendHelp(group, user.user_id)).toast ?? "Готово";
+    case "dm_chat":
+      await api.sendMessageToChat(dmChatId, { text: "Каким чатом управлять отсюда?", attachments: [{ type: "inline_keyboard", payload: { buttons: await chatChoiceRows(user.user_id) } }] });
+      return "Выберите чат";
+    case "dm_chat_set": {
+      if (!(await userChats(user.user_id)).includes(action.c)) return "Вы не состоите в этом чате";
+      setDmTarget(user.user_id, action.c);
+      await dropDialog();
+      await sendPanel(dmChatId, user.user_id); // меню уже для выбранного чата
+      return `Чат: ${await chatTitle(action.c)}`;
+    }
     case "nick": {
       awaitingNick.add(`${dmChatId}:${user.user_id}`);
       const current = getNickname(user.user_id) ?? user.first_name;

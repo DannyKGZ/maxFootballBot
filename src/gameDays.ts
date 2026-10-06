@@ -27,21 +27,21 @@ export function parseWeeklyCron(expression: string): WeeklyCron | null {
 }
 
 /** Действующее расписание публикации: из /расписание, иначе CRON_SCHEDULE. */
-export function effectiveScheduleCron(): string {
-  return loadSchedule()?.cron ?? config.cronSchedule;
+export function effectiveScheduleCron(chatId: number): string {
+  return loadSchedule(chatId)?.cron ?? config.cronSchedule;
 }
 
 /** Дни недели игр: следующий день после каждого дня публикации. */
-export function gameWeekdays(): number[] {
-  const weekly = parseWeeklyCron(effectiveScheduleCron());
+export function gameWeekdays(chatId: number): number[] {
+  const weekly = parseWeeklyCron(effectiveScheduleCron(chatId));
   if (!weekly) return [config.gameDayOfWeek];
   return [...new Set(weekly.days.map((d) => (d + 1) % 7))].sort((a, b) => a - b);
 }
 
 /** Ближайшая игра строго после `from`: ближайший игровой день, время игры. */
-export function computeNextGameDate(from: Date = new Date()): Date {
-  const [hours, minutes] = getGameTime().split(":").map(Number);
-  const days = gameWeekdays();
+export function computeNextGameDate(chatId: number, from: Date = new Date()): Date {
+  const [hours, minutes] = getGameTime(chatId).split(":").map(Number);
+  const days = gameWeekdays(chatId);
   for (let add = 0; add <= 7; add++) {
     const d = new Date(from);
     d.setDate(d.getDate() + add);
@@ -52,8 +52,8 @@ export function computeNextGameDate(from: Date = new Date()): Date {
 }
 
 /** Когда бот сам опубликует следующую запись (для /статус); null — расписание не еженедельное. */
-export function nextPublicationDate(from: Date = new Date()): Date | null {
-  const weekly = parseWeeklyCron(effectiveScheduleCron());
+export function nextPublicationDate(chatId: number, from: Date = new Date()): Date | null {
+  const weekly = parseWeeklyCron(effectiveScheduleCron(chatId));
   if (!weekly) return null;
   for (let add = 0; add <= 7; add++) {
     const d = new Date(from);

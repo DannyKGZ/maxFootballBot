@@ -89,10 +89,10 @@ function userMenuRows(): KeyboardButton[][] {
 }
 
 /** Меню участника в личке: запись, статус, рейтинг, инструкция. */
-export function userMenuKeyboard(): InlineKeyboardAttachment {
+export function userMenuKeyboard(extraRows: KeyboardButton[][] = []): InlineKeyboardAttachment {
   return {
     type: "inline_keyboard",
-    payload: { buttons: [...userMenuRows(), [callbackButton("ℹ️ Инструкция", { a: "help" })]] },
+    payload: { buttons: [...extraRows, ...userMenuRows(), [callbackButton("ℹ️ Инструкция", { a: "help" })]] },
   };
 }
 
@@ -110,11 +110,12 @@ export function dmRemoveKeyboard(userId: number, names: string[]): InlineKeyboar
 }
 
 /** Панель администратора — только в личном чате с ботом, действия выполняются в группе. */
-export function adminKeyboard(): InlineKeyboardAttachment {
+export function adminKeyboard(extraRows: KeyboardButton[][] = []): InlineKeyboardAttachment {
   return {
     type: "inline_keyboard",
     payload: {
       buttons: [
+        ...extraRows,
         ...userMenuRows(),
         [callbackButton("🔄 Новая запись", { a: "admin_restart" }), callbackButton("⏹ Закрыть запись", { a: "adm_close" })],
         [callbackButton("✏️ Список игроков", { a: "adm_edit" }), callbackButton("⚽ Дележка", { a: "adm_draft" })],

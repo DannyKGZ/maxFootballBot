@@ -1,8 +1,8 @@
-import { config } from "./config";
 import * as api from "./maxApi";
 import { InlineKeyboardAttachment, KeyboardButton } from "./maxApi";
 import { adminRemoveAt, adminRenameAt, adminSwap, ensurePlayerIds, findPlayerIndex, isChatAdmin, playerKey } from "./sessionLogic";
 import { getSession } from "./store";
+import { dmTarget } from "./dmTarget";
 import { ButtonAction, FootballSession } from "./types";
 
 /**
@@ -71,7 +71,7 @@ const btn = (text: string, action: ButtonAction): KeyboardButton => ({ type: "ca
 const kb = (rows: KeyboardButton[][]): InlineKeyboardAttachment => ({ type: "inline_keyboard", payload: { buttons: rows } });
 
 // Админ, который сейчас вводит новое имя: ключ `${dmChatId}:${userId}` → ключ игрока.
-const awaitingRename = new Map<string, { k: string; messageId: string }>();
+const awaitingRename = new Map<string, { k: string; messageId: string; group: number }>();
 
 function listView(session: FootballSession | undefined) {
   if (session) ensurePlayerIds(session);
@@ -94,8 +94,8 @@ export function isRosterEditAction(action: ButtonAction): boolean {
 }
 
 /** Кнопка «✏️ Список игроков» в панели — новое сообщение-редактор в личке. */
-export async function openEditor(dmChatId: number): Promise<void> {
-  await api.sendMessageToChat(dmChatId, listView(getSession(config.defaultChatId)));
+export async function openEditor(dmChatId: number, group: number): Promise<void> {
+  await api.sendMessageToChat(dmChatId, listView(getSession(group)));
 }
 
 /** Нажатия в редакторе. Возвращает текст всплывающего уведомления. */
@@ -105,7 +105,7 @@ export async function handleEditAction(
   action: ButtonAction,
   messageId: string | undefined,
 ): Promise<string> {
-  const group = config.defaultChatId;
+  const group = await dmTarget(userId);
   if (!(await isChatAdmin(group, userId))) return "Только для администраторов чата";
   if (!messageId) return "Готово";
   const session = getSession(group);
@@ -150,7 +150,7 @@ export async function handleEditAction(
         await show(listView(session));
         return "Этого игрока уже нет в списке";
       }
-      awaitingRename.set(`${dmChatId}:${userId}`, { k: action.k, messageId });
+      awaitingRename.set(`${dmChatId}:${userId}`, { k: action.k, messageId, group });
       await show({
         text: `✏️ Напишите новое имя для «${session!.players[index].displayName}» следующим сообщением.`,
         attachments: [kb([[btn("Отмена", { a: "ed_list" })]])],
@@ -166,7 +166,7 @@ export async function handleAwaitedRename(dmChatId: number, userId: number, text
   const state = awaitingRename.get(`${dmChatId}:${userId}`);
   if (!state || text.startsWith("/")) return false;
   awaitingRename.delete(`${dmChatId}:${userId}`);
-  const session = getSession(config.defaultChatId);
+  const session = getSession(state.group);
   const index = session ? session.players.findIndex((p) => playerKey(p) === state.k) : -1;
   if (index === -1) {
     await api.sendMessageToChat(dmChatId, { text: "Этого игрока уже нет в списке." });

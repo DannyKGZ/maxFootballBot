@@ -17,7 +17,13 @@ function optionalInt(name: string, fallback: number): number {
 
 export const config = {
   botToken: required("BOT_TOKEN"),
-  defaultChatId: optionalInt("CHAT_ID", 0),
+  // Чаты, которые ведёт бот: CHAT_IDS=-111,-222 (у каждого — своё расписание,
+  // свои админы, своя запись и рейтинг). Для одного чата можно по-старому CHAT_ID.
+  chatIds: (process.env.CHAT_IDS || process.env.CHAT_ID || "")
+    .split(/[,\s]+/)
+    .map(Number)
+    .filter((n) => Number.isFinite(n) && n !== 0),
+  defaultChatId: 0, // первый из chatIds — задаётся ниже
   port: optionalInt("PORT", 8443),
   // Как получать сообщения из MAX: "webhook" (MAX шлёт на PUBLIC_WEBHOOK_URL — нужен
   // HTTPS: туннель или домен) или "polling" (бот сам забирает их через GET /updates —
@@ -64,6 +70,13 @@ export const config = {
   // MAX_API_BASE_URL нужен только для тестов с подставным сервером; в проде не задаётся.
   apiBaseUrl: process.env.MAX_API_BASE_URL || "https://platform-api2.max.ru",
 };
+
+config.defaultChatId = config.chatIds[0] ?? 0;
+
+/** Ведёт ли бот этот чат (сообщения из других групп он игнорирует). */
+export function isManagedChat(chatId: number): boolean {
+  return config.chatIds.includes(chatId);
+}
 
 // Все даты бот считает в часовом поясе TIMEZONE, а не в поясе сервера: иначе на
 // хостинге в UTC игра «21:30» превратилась бы в 00:30 по Москве следующего дня,

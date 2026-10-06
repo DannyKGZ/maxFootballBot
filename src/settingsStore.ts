@@ -12,34 +12,35 @@ export interface SavedSchedule {
   time: string; // "ЧЧ:ММ:СС" (у старых сохранений — "ЧЧ:ММ")
 }
 
-export function loadSchedule(): SavedSchedule | null {
-  const row = db().prepare("SELECT cron, days, time FROM schedule WHERE id = 1").get() as
+/** Расписание публикации записи этого чата из /расписание; null — действует CRON_SCHEDULE. */
+export function loadSchedule(chatId: number): SavedSchedule | null {
+  const row = db().prepare("SELECT cron, days, time FROM chat_schedule WHERE chat_id = ?").get(chatId) as
     | { cron: string; days: string; time: string }
     | undefined;
   return row ? { cron: row.cron, days: JSON.parse(row.days) as number[], time: row.time } : null;
 }
 
-/** Забыть расписание из /расписание — снова действует CRON_SCHEDULE из .env. */
-export function deleteSchedule(): void {
-  db().prepare("DELETE FROM schedule").run();
+/** Забыть расписание чата из /расписание — снова действует CRON_SCHEDULE из .env. */
+export function deleteSchedule(chatId: number): void {
+  db().prepare("DELETE FROM chat_schedule WHERE chat_id = ?").run(chatId);
 }
 
-export function saveSchedule(schedule: SavedSchedule): void {
+export function saveSchedule(chatId: number, schedule: SavedSchedule): void {
   db()
-    .prepare("INSERT OR REPLACE INTO schedule (id, cron, days, time) VALUES (1, ?, ?, ?)")
-    .run(schedule.cron, JSON.stringify(schedule.days), schedule.time);
+    .prepare("INSERT OR REPLACE INTO chat_schedule (chat_id, cron, days, time) VALUES (?, ?, ?, ?)")
+    .run(chatId, schedule.cron, JSON.stringify(schedule.days), schedule.time);
 }
 
 // ---- Время игры ----
 
-/** Время игры для новых записей: заданное через /описание, иначе GAME_TIME из .env. */
-export function getGameTime(): string {
-  const row = db().prepare("SELECT value FROM meta WHERE key = 'game_time'").get() as { value: string } | undefined;
+/** Время начала игры чата: заданное через /описание, иначе GAME_TIME из .env. */
+export function getGameTime(chatId: number): string {
+  const row = db().prepare("SELECT value FROM meta WHERE key = ?").get(`game_time:${chatId}`) as { value: string } | undefined;
   return row?.value ?? config.gameTime;
 }
 
-export function setGameTime(time: string): void {
-  db().prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('game_time', ?)").run(time);
+export function setGameTime(chatId: number, time: string): void {
+  db().prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(`game_time:${chatId}`, time);
 }
 
 // ---- Своё имя в списке (/имя, кнопка «✏️ Изменить имя») ----
@@ -60,14 +61,14 @@ export function setNickname(userId: number, name: string): void {
  * Шапка записи из /описание: текст с подстановками {День}/{день} (день недели),
  * {дата} (ДД.ММ.ГГГГ), {дата_кратко} (ДД.ММ), {время}. null — стандартная шапка.
  */
-export function getRosterTemplate(): string | null {
-  const row = db().prepare("SELECT value FROM meta WHERE key = 'roster_title'").get() as { value: string } | undefined;
+export function getRosterTemplate(chatId: number): string | null {
+  const row = db().prepare("SELECT value FROM meta WHERE key = ?").get(`roster_title:${chatId}`) as { value: string } | undefined;
   return row?.value ?? null;
 }
 
-export function setRosterTemplate(template: string | null): void {
-  if (template === null) db().prepare("DELETE FROM meta WHERE key = 'roster_title'").run();
-  else db().prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('roster_title', ?)").run(template);
+export function setRosterTemplate(chatId: number, template: string | null): void {
+  if (template === null) db().prepare("DELETE FROM meta WHERE key = ?").run(`roster_title:${chatId}`);
+  else db().prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(`roster_title:${chatId}`, template);
 }
 
 // ---- Рейтинг MVP игроков ----

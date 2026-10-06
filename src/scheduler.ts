@@ -1,43 +1,39 @@
 import cron, { ScheduledTask } from "node-cron";
-import { config } from "./config";
+import { config, isManagedChat } from "./config";
 import { closeSignupIfStarted, publishNewSession } from "./sessionLogic";
 import { runNotifications } from "./notifications";
 import { loadSchedule } from "./settingsStore";
 import { getAllSessions, getAllVoteSessions } from "./store";
 import { autoStartVoteIfDue, finalizeVote } from "./voteLogic";
 
-let task: ScheduledTask | null = null;
+// Своя cron-задача публикации записи у каждого чата.
+const tasks = new Map<number, ScheduledTask>();
 
 /**
- * (Пере)запускает публикацию записи по cron-выражению; предыдущее расписание
- * останавливается. Вызывается при старте и после настройки расписания админом.
+ * (Пере)запускает публикацию записи чата по cron-выражению; прежнее расписание
+ * этого чата останавливается. Вызывается при старте и после /расписание.
  */
-export function applySchedule(expression: string): void {
+export function applySchedule(chatId: number, expression: string): void {
   if (!cron.validate(expression)) {
     throw new Error(`Некорректное cron-выражение: ${expression}`);
   }
-  if (!config.defaultChatId) {
-    console.warn("[scheduler] CHAT_ID не задан — планировщик не запущен");
-    return;
-  }
-
-  task?.stop();
-  task = cron.schedule(
-    expression,
-    async () => {
-      try {
-        console.log(`[scheduler] публикую новую запись в чат ${config.defaultChatId}`);
-        await publishNewSession(config.defaultChatId);
-      } catch (err) {
-        console.error("[scheduler] ошибка публикации записи:", err);
-      }
-    },
-    { timezone: config.timezone },
+  tasks.get(chatId)?.stop();
+  tasks.set(
+    chatId,
+    cron.schedule(
+      expression,
+      async () => {
+        try {
+          console.log(`[scheduler] публикую новую запись в чат ${chatId}`);
+          await publishNewSession(chatId);
+        } catch (err) {
+          console.error(`[scheduler] ошибка публикации записи в чат ${chatId}:`, err);
+        }
+      },
+      { timezone: config.timezone },
+    ),
   );
-
-  console.log(
-    `[scheduler] запущен: "${expression}" (${config.timezone}), чат ${config.defaultChatId}`,
-  );
+  console.log(`[scheduler] чат ${chatId}: запись по расписанию "${expression}" (${config.timezone})`);
 }
 
 /**
@@ -46,7 +42,8 @@ export function applySchedule(expression: string): void {
  */
 async function tick(now = Date.now()): Promise<void> {
   // Игра началась — запись закрывается, список фиксируется.
-  for (const session of getAllSessions()) {
+  const sessions = getAllSessions().filter((s) => isManagedChat(s.chatId)); // только чаты из CHAT_IDS
+  for (const session of sessions) {
     try {
       await closeSignupIfStarted(session, now);
     } catch (err) {
@@ -57,7 +54,7 @@ async function tick(now = Date.now()): Promise<void> {
   await runNotifications(now);
 
   // Через час после начала игры (в 21:30) голосование за MVP открывается само.
-  for (const session of getAllSessions()) {
+  for (const session of sessions) {
     try {
       await autoStartVoteIfDue(session, now);
     } catch (err) {
@@ -82,7 +79,8 @@ let ticking = false;
 
 /** Старт: расписание, сохранённое админом (иначе CRON_SCHEDULE), и периодические проверки. */
 export function startScheduler(): void {
-  applySchedule(loadSchedule()?.cron ?? config.cronSchedule);
+  if (config.chatIds.length === 0) console.warn("[scheduler] CHAT_IDS (CHAT_ID) не задан — публиковать запись некуда");
+  for (const chatId of config.chatIds) applySchedule(chatId, loadSchedule(chatId)?.cron ?? config.cronSchedule);
   setInterval(() => {
     if (ticking) return; // предыдущая проверка ещё идёт (очистка чата может занять время)
     ticking = true;

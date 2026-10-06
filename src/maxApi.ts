@@ -247,3 +247,14 @@ export function getUpdates(marker: number | undefined, timeoutSec: number, types
     (timeoutSec + 15) * 1000,
   );
 }
+
+/** GET /chats/{chatId} — название чата (для выбора чата в личке с ботом). */
+export function getChat(chatId: number): Promise<{ chat_id: number; title?: string }> {
+  return request("GET", `/chats/${chatId}`, {});
+}
+
+/** Состоит ли пользователь в чате: GET /chats/{chatId}/members?user_ids=... */
+export async function isChatMember(chatId: number, userId: number): Promise<boolean> {
+  const res = await request<{ members: MaxChatMember[] }>("GET", `/chats/${chatId}/members`, { user_ids: userId });
+  return (res.members ?? []).some((m) => m.user_id === userId);
+}

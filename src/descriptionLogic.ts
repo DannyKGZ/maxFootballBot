@@ -59,19 +59,19 @@ export async function handleDescription(groupChatId: number, userId: number, arg
   const text = arg?.trim();
 
   if (!text) {
-    const current = session ? rosterTitle(session) : getRosterTemplate() ?? DEFAULT_ROSTER_TEMPLATE;
+    const current = session ? rosterTitle(session) : getRosterTemplate(groupChatId) ?? DEFAULT_ROSTER_TEMPLATE;
     return `Сейчас шапка записи:\n\n${current}\n\n${HELP}`;
   }
 
   if (/^(сброс|reset)$/i.test(text)) {
-    setRosterTemplate(null);
+    setRosterTemplate(groupChatId, null);
     if (session) await refreshRoster(session);
     return "♻️ Шапка записи снова стандартная: «Футбол в {день недели} {дата} года / В {время}».";
   }
 
   if (text.length > 500) return "Слишком длинное описание — не больше 500 символов.";
   const { template, dynamic, startTime } = toTemplate(text);
-  setRosterTemplate(template);
+  setRosterTemplate(groupChatId, template);
 
   const lines = ["✅ Шапка записи обновлена."];
   lines.push(
@@ -81,7 +81,7 @@ export async function handleDescription(groupChatId: number, userId: number, arg
   );
 
   if (startTime) {
-    setGameTime(startTime);
+    setGameTime(groupChatId, startTime);
     if (session && gameTimeOf(session) !== startTime) {
       const d = new Date(session.date);
       const [h, m] = startTime.split(":").map(Number);

@@ -38,6 +38,9 @@ CREATE TABLE IF NOT EXISTS mvp_aliases (
   PRIMARY KEY (chat_id, from_key)
 );
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS chat_schedule (
+  chat_id INTEGER PRIMARY KEY, cron TEXT NOT NULL, days TEXT NOT NULL, time TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS nicknames (user_id INTEGER PRIMARY KEY, name TEXT NOT NULL); -- своё имя в списке (/имя)
 `;
 
@@ -51,8 +54,8 @@ export function db(): Database.Database {
   instance.pragma("journal_mode = WAL"); // устойчиво к сбоям, чтение не блокирует запись
   instance.pragma("busy_timeout = 5000");
   instance.exec(SCHEMA);
-  upgradeSchema(instance);
   migrateFromJson(instance);
+  upgradeSchema(instance); // после JSON: старое общее расписание тоже переедет к первому чату
   return instance;
 }
 
@@ -69,6 +72,22 @@ function upgradeSchema(d: Database.Database): void {
     d.exec("ALTER TABLE mvp_players ADD COLUMN season_count INTEGER NOT NULL DEFAULT 0");
     d.exec("UPDATE mvp_players SET season_count = count");
     console.log("[db] в рейтинг MVP добавлен сезонный счёт (прошлые победы засчитаны в текущий сезон)");
+  }
+
+  // Несколько чатов: расписание, время игры и шапка записи стали своими у каждого
+  // чата. Прежние общие настройки переносятся первому чату (CHAT_ID / CHAT_IDS[0]).
+  const first = config.chatIds[0];
+  if (first && !d.prepare("SELECT 1 FROM meta WHERE key = 'per_chat_settings'").get()) {
+    const old = d.prepare("SELECT cron, days, time FROM schedule WHERE id = 1").get() as
+      | { cron: string; days: string; time: string }
+      | undefined;
+    if (old) d.prepare("INSERT OR IGNORE INTO chat_schedule (chat_id, cron, days, time) VALUES (?, ?, ?, ?)").run(first, old.cron, old.days, old.time);
+    for (const k of ["game_time", "roster_title"]) {
+      const row = d.prepare("SELECT value FROM meta WHERE key = ?").get(k) as { value: string } | undefined;
+      if (row) d.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)").run(`${k}:${first}`, row.value);
+    }
+    d.prepare("INSERT INTO meta (key, value) VALUES ('per_chat_settings', ?)").run(String(first));
+    if (old) console.log(`[db] расписание, время игры и шапка записи теперь свои у каждого чата — прежние отданы чату ${first}`);
   }
 }
 

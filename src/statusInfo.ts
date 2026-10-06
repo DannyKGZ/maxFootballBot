@@ -75,13 +75,13 @@ export function buildStatusText(chatId: number, now = Date.now()): string {
     if (last) lines.push(`Последняя игра: ${formatWhen(new Date(last.date))}, игроков: ${last.players.length}.`);
   }
 
-  const next = nextPublicationDate(new Date(now));
+  const next = nextPublicationDate(chatId, new Date(now));
   lines.push(
     "",
     vote ? `🗳 Идёт голосование за MVP — отдано голосов: ${vote.votes.length}.` : "🗳 Голосование за MVP сейчас не идёт.",
     next
-      ? `🗓 Следующая запись откроется ${formatWhen(next)} — на игру ${formatWhen(computeNextGameDate(next))}. Расписание: ${currentScheduleText()}.`
-      : `🗓 Новая запись публикуется автоматически: ${currentScheduleText()}.`,
+      ? `🗓 Следующая запись откроется ${formatWhen(next)} — на игру ${formatWhen(computeNextGameDate(chatId, next))}. Расписание: ${currentScheduleText(chatId)}.`
+      : `🗓 Новая запись публикуется автоматически: ${currentScheduleText(chatId)}.`,
   );
   return lines.join("\n");
 }

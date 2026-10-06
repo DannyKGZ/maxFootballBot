@@ -85,7 +85,7 @@ bash setup-server.sh
 nano /opt/max-football-bot/.env
 ```
 
-Перенесите значения из `.env` на ПК: `BOT_TOKEN`, `CHAT_ID`, `MAX_PLAYERS`,
+Перенесите значения из `.env` на ПК: `BOT_TOKEN`, `CHAT_IDS` (или `CHAT_ID`), `MAX_PLAYERS`,
 `GAME_DAY_OF_WEEK`, `GAME_TIME`, `REMINDER_HOURS_BEFORE`, `PAYMENT_AMOUNT`,
 `PAYMENT_DETAILS` и остальные. Для сервера обязательно:
 
@@ -174,5 +174,5 @@ bash /opt/max-football-bot/deploy/update.sh
 | `unable to get local issuer certificate` | не подхватился сертификат Минцифры — сервис запускайте только через systemd (в нём задан `NODE_EXTRA_CA_CERTS`), не через `node dist/index.js` вручную. |
 | `Не задана обязательная переменная окружения: BOT_TOKEN` | не заполнен `.env` в `/opt/max-football-bot`. |
 | Бот отвечает дважды / две записи по расписанию | бот ещё работает на ПК — остановите его там. |
-| Запись публикуется не в тот чат | `CHAT_ID` в `.env`; узнать ID чата: напишите в него что-нибудь — в логе появится `сообщение из чата chat_id=…`. |
+| Запись публикуется не в тот чат | `CHAT_IDS` в `.env`; узнать ID чата: напишите в него что-нибудь — в логе появится `сообщение из чата chat_id=…`. |
 | После правки `.env` ничего не поменялось | `systemctl restart max-football-bot`. |

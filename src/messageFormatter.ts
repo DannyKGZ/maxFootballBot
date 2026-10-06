@@ -53,7 +53,7 @@ export function renderRosterTemplate(template: string, session: FootballSession)
 
 /** Шапка записи: шаблон из /описание или стандартная «Футбол в Среда … / В …». */
 export function rosterTitle(session: FootballSession): string {
-  return renderRosterTemplate(getRosterTemplate() ?? DEFAULT_ROSTER_TEMPLATE, session);
+  return renderRosterTemplate(getRosterTemplate(session.chatId) ?? DEFAULT_ROSTER_TEMPLATE, session);
 }
 
 export function buildRosterText(session: FootballSession): string {

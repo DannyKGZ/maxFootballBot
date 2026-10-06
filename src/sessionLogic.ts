@@ -168,7 +168,7 @@ export async function publishNewSession(chatId: number): Promise<FootballSession
     chatId,
     messageId: null,
     players: [],
-    date: computeNextGameDate().toISOString(),
+    date: computeNextGameDate(chatId).toISOString(),
     createdAt: Date.now(),
   };
   await pushRosterUpdate(session);
@@ -624,14 +624,16 @@ export async function adminSwap(session: FootballSession, i: number, j: number):
  * а в текущей записи его собственная строка (через «+») сразу переименовывается.
  * null — успех, иначе текст ошибки.
  */
-export async function setOwnNickname(groupChatId: number, userId: number, name: string): Promise<string | null> {
+export async function setOwnNickname(userId: number, name: string): Promise<string | null> {
   const nick = name.trim();
   const error = validateNames([nick]);
   if (error) return error;
   setNickname(userId, nick);
-  const session = getSession(groupChatId);
-  const own = session?.players.filter((p) => p.userId === userId && p.profileName) ?? [];
-  if (session && own.length) {
+  // Имя одно на человека — переименовываем его собственную строку во всех чатах бота.
+  for (const chatId of config.chatIds) {
+    const session = getSession(chatId);
+    const own = session?.players.filter((p) => p.userId === userId && p.profileName) ?? [];
+    if (!session || own.length === 0) continue;
     for (const p of own) {
       p.displayName = nick;
       delete p.lastName;

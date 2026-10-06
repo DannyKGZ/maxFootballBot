@@ -1,21 +1,22 @@
 module.exports = {
   name: "Голосование: только основа — резерв не кандидат и не голосует",
-  env: { MAX_PLAYERS: "3" },
+  env: { MAX_PLAYERS: "4" },
   async run(t) {
     await t.say(1, "/старт");
     await t.say(2, "+"); // 1. Ruslan
     await t.say(3, "+"); // 2. Рома
     await t.say(2, "+Петя"); // 3. Петя — основа (у Ruslan две записи в основе)
-    await t.say(2, "+Запасной"); // 4 — резерв Ruslan
-    await t.say(4, "+"); // 5. Влад — резерв
+    await t.say(4, "+"); // 4. Влад — основа, голосовать не будет (иначе голосование закроется само)
+    await t.say(2, "+Запасной"); // 5 — резерв Ruslan
+    await t.say(5, "+"); // 6. Пятый — резерв
     await t.say(1, "/голосование");
     const v = t.find(/Голосование за MVP/);
-    t.ok(t.buttons(v).map((b) => b.split(" ")[0]).join("|") === "Ruslan|Рома|Петя", "кандидаты — только основа (3), без резерва", t.buttons(v));
-    t.ok(v.text.includes("🔴 Ruslan — голосов: 2") && v.text.includes("🔴 Рома") && !v.text.includes("Влад"), "голосующие — только основа, 🔴 пока не голосовали", v.text);
-    t.ok(v.text.includes("Отдано голосов: 0 из 3"), "всего голосов = игроков основы", v.text);
+    t.ok(t.buttons(v).map((b) => b.split(" ")[0]).join("|") === "Ruslan|Рома|Петя|Влад", "кандидаты — только основа (4), без резерва", t.buttons(v));
+    t.ok(v.text.includes("🔴 Ruslan — голосов: 2") && v.text.includes("🔴 Рома") && !v.text.includes("Пятый"), "голосующие — только основа, 🔴 пока не голосовали", v.text);
+    t.ok(v.text.includes("Отдано голосов: 0 из 4"), "всего голосов = игроков основы", v.text);
 
-    await t.click(4, v, "Рома");
-    t.ok(t.toast().includes("только тот, кто был записан"), "резервист (Влад) не голосует");
+    await t.click(5, v, "Рома");
+    t.ok(t.toast().includes("только тот, кто был записан"), "резервист (Пятый) не голосует");
     await t.click(2, t.find(/Голосование за MVP/), "Рома");
     await t.click(2, t.find(/Голосование за MVP/), "Петя");
     await t.click(2, t.find(/Голосование за MVP/), "Рома");
@@ -25,7 +26,7 @@ module.exports = {
     await t.click(3, t.find(/Голосование за MVP/), "Петя");
     const text = t.find(/Голосование за MVP/).text;
     const btns = t.buttons(t.find(/Голосование за MVP/));
-    t.ok(text.includes("Отдано голосов: 3 из 3") && btns.includes("Петя ▰▰▰▰▰▰▰▱▱▱ 2") && btns.includes("Рома ▰▰▰▱▱▱▱▱▱▱ 1"), "бары на кнопках, шкала из 3 голосов", btns);
+    t.ok(text.includes("Отдано голосов: 3 из 4") && btns.includes("Петя ▰▰▰▰▰▱▱▱▱▱ 2") && btns.includes("Рома ▰▰▰▱▱▱▱▱▱▱ 1") && btns.includes("Влад"), "бары на кнопках (шкала из 4 голосов), у Влада без голосов — просто имя", btns);
     t.ok(text.includes("✅ Ruslan → Рома, Петя") && text.includes("✅ Рома → Петя"), "у каждого ✅ и за кого он проголосовал", text);
 
     // Голосование всегда внизу чата и в одном экземпляре.

@@ -60,7 +60,7 @@ systemctl enable max-football-bot
 
 if [ "${NEED_ENV:-0}" = 1 ] || grep -q '^BOT_TOKEN=your_bot_token_here' "$APP_DIR/.env"; then
   echo
-  echo "Готово, осталось заполнить $APP_DIR/.env (BOT_TOKEN, CHAT_ID и др.), затем:"
+  echo "Готово, осталось заполнить $APP_DIR/.env (BOT_TOKEN, CHAT_IDS и др.), затем:"
   echo "  systemctl start max-football-bot && journalctl -u max-football-bot -f"
 else
   systemctl restart max-football-bot

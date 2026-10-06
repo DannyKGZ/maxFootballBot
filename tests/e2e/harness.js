@@ -37,6 +37,10 @@ function startMock() {
     subscriptions: [{ url: "https://old-tunnel.trycloudflare.com/webhook", time: 0 }],
     deletedSubscriptions: [],
     hangOnce: new Set(), // пути, на которых «MAX» один раз не отвечает (проверка таймаутов)
+    // Несколько чатов: названия, участники и админы по чатам (по умолчанию — все во всех, админ — общий).
+    chatTitles: { "-1": "Работяги", "-2": "Лига Джентельменов" },
+    chatMembers: {}, // { "-2": [2, 5] }
+    chatAdmins: {}, // { "-2": [5] }
     // У Ромы и Влада есть фамилия (name = «имя фамилия») — как у части людей в реальном чате.
     members: [
       ...Object.entries(USERS).map(([id, name]) => {
@@ -87,7 +91,18 @@ function startMock() {
         answers.push(b.notification);
         return send(res, { success: true });
       }
-      if (p.endsWith("/members/admins")) return send(res, { members: ADMINS.map((user_id) => ({ user_id })) });
+      const chatKey = (p.match(/^\/chats\/(-?\d+)/) || [])[1] || "";
+      if (p.endsWith("/members/admins")) {
+        return send(res, { members: (state.chatAdmins[chatKey] || ADMINS).map((user_id) => ({ user_id })) });
+      }
+      if (p.endsWith("/members") && u.searchParams.get("user_ids")) {
+        const ids = u.searchParams.get("user_ids").split(",").map(Number);
+        const allowed = state.chatMembers[chatKey];
+        return send(res, { members: ids.filter((id) => !allowed || allowed.includes(id)).map((user_id) => ({ user_id })) });
+      }
+      if (req.method === "GET" && /^\/chats\/-?\d+$/.test(p)) {
+        return send(res, { chat_id: Number(chatKey), title: state.chatTitles[chatKey] || `Чат ${chatKey}` });
+      }
       if (p.endsWith("/members")) {
         const size = Math.min(Number(u.searchParams.get("count") || 20), 100);
         const from = Number(u.searchParams.get("marker") || 0);
@@ -180,7 +195,6 @@ class Harness {
       PAYMENT_HOURS_AFTER: "0",
       VOTE_AUTO_CLOSE_HOURS: "0",
       VOTE_AUTO_START_MINUTES: "0", // автозапуск голосования проверяется отдельным сценарием
-      VOTE_AUTO_START_MINUTES: "0", // автозапуск голосования проверяется отдельным сценарием
       ...(this.scenario.env || {}),
     };
     this.log = "";
@@ -249,27 +263,27 @@ class Harness {
     return { user_id: uid, first_name: USERS[uid], last_name: "", name: USERS[uid], is_bot: false };
   }
 
-  recipient(uid, dm) {
-    return dm ? { chat_id: dmOf(uid), chat_type: "dialog" } : { chat_id: GROUP, chat_type: "chat" };
+  recipient(uid, dm, chat = GROUP) {
+    return dm ? { chat_id: dmOf(uid), chat_type: "dialog" } : { chat_id: chat, chat_type: "chat" };
   }
 
-  messageUpdate(uid, text, dm = false) {
+  messageUpdate(uid, text, dm = false, chat = GROUP) {
     const ts = this.ts++;
     return {
       update_type: "message_created",
       timestamp: ts,
-      message: { sender: this.sender(uid), recipient: this.recipient(uid, dm), timestamp: ts, body: { mid: "u." + ts, seq: ts, text } },
+      message: { sender: this.sender(uid), recipient: this.recipient(uid, dm, chat), timestamp: ts, body: { mid: "u." + ts, seq: ts, text } },
     };
   }
 
-  /** Пользователь пишет сообщение (в группу или боту в личку). */
-  async say(uid, text, { dm = false } = {}) {
-    await this.post(this.messageUpdate(uid, text, dm));
+  /** Пользователь пишет сообщение (в группу или боту в личку); chat — другой групповой чат. */
+  async say(uid, text, { dm = false, chat = GROUP } = {}) {
+    await this.post(this.messageUpdate(uid, text, dm, chat));
     await this.idle();
   }
 
   /** Пользователь нажимает кнопку, чей текст начинается с `label`, под сообщением `msg`. */
-  async click(uid, msg, label, { dm = false } = {}) {
+  async click(uid, msg, label, { dm = false, chat = GROUP } = {}) {
     const btn = this.buttons(msg, true).find((b) => b.text.startsWith(label));
     if (!btn) throw new Error(`нет кнопки «${label}» под сообщением: ${msg && msg.text}`);
     const ts = this.ts++;
@@ -277,7 +291,7 @@ class Harness {
       update_type: "message_callback",
       timestamp: ts,
       callback: { callback_id: "c" + ts, payload: btn.payload, user: this.sender(uid) },
-      message: { recipient: this.recipient(uid, dm), body: { mid: msg.mid } },
+      message: { recipient: this.recipient(uid, dm, chat), body: { mid: msg.mid } },
     });
     await this.idle();
   }
@@ -331,7 +345,7 @@ class Harness {
     return row ? JSON.parse(row.data) : null;
   }
   savedSchedule() {
-    return this.query("SELECT cron, days, time FROM schedule WHERE id = 1")[0] || null;
+    return this.query("SELECT cron, days, time FROM chat_schedule WHERE chat_id = ?", GROUP)[0] || null;
   }
   fileExists(file) {
     return fs.existsSync(path.join(this.dataDir, file));

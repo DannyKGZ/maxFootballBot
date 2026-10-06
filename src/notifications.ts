@@ -1,4 +1,4 @@
-import { config } from "./config";
+import { config, isManagedChat } from "./config";
 import * as api from "./maxApi";
 import { buildPaymentText, buildReminderText } from "./messageFormatter";
 import { getAllArchivedSessions, getAllSessions, setArchivedSession, setSession } from "./store";
@@ -88,7 +88,7 @@ async function notifySession(session: FootballSession, now: number, save: (s: Fo
 
 /** Вызывается планировщиком периодически (TICK_INTERVAL_MS). */
 export async function runNotifications(now = Date.now()): Promise<void> {
-  for (const s of getAllSessions()) await notifySession(s, now, setSession);
+  for (const s of getAllSessions().filter((x) => isManagedChat(x.chatId))) await notifySession(s, now, setSession);
   // Игра прошла, а запись уже закрыта (например, открыли новую) — оплату после игры всё равно напоминаем.
-  for (const s of getAllArchivedSessions()) await notifySession(s, now, setArchivedSession);
+  for (const s of getAllArchivedSessions().filter((x) => isManagedChat(x.chatId))) await notifySession(s, now, setArchivedSession);
 }

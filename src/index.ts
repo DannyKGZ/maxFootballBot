@@ -80,9 +80,10 @@ async function main(): Promise<void> {
     .catch((err) => console.warn("[bot] не удалось обновить меню команд:", err instanceof Error ? err.message : err));
 
   startScheduler();
-  if (config.defaultChatId) {
-    void refreshRosterOnStartup(config.defaultChatId);
-    void refreshVoteMessage(config.defaultChatId); // текст и кнопки голосования — по текущей версии бота
+  console.log(`[bot] чаты: ${config.chatIds.join(", ") || "не заданы (CHAT_IDS)"}`);
+  for (const chatId of config.chatIds) {
+    void refreshRosterOnStartup(chatId);
+    void refreshVoteMessage(chatId); // текст и кнопки голосования — по текущей версии бота
   }
 
   const shutdown = (signal: string) => {

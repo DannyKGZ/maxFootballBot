@@ -19,6 +19,7 @@ import { ButtonAction, ScheduleAction } from "./types";
  */
 
 interface Dialog {
+  group: number; // чат, чьё расписание настраиваем (диалог может идти в личке)
   step: "days" | "time" | "custom_time";
   days: number[]; // 0=вс ... 6=сб (как в cron)
   messageId: string;
@@ -55,22 +56,22 @@ export function describeCron(expression: string): string {
 }
 
 /** «игра — на следующий день: Ср, Пт, Пн в 20:30». */
-export function gamesText(): string {
-  return `игра — на следующий день после публикации: ${formatDays(gameWeekdays())} в ${getGameTime()}`;
+export function gamesText(chatId: number): string {
+  return `игра — на следующий день после публикации: ${formatDays(gameWeekdays(chatId))} в ${getGameTime(chatId)}`;
 }
 
 /** Действующее расписание публикации: из /расписание или CRON_SCHEDULE из .env. */
-export function currentScheduleText(): string {
-  const saved = loadSchedule();
+export function currentScheduleText(chatId: number): string {
+  const saved = loadSchedule(chatId);
   return saved
     ? `${describeCron(saved.cron)} (настроено через /расписание)`
     : `${describeCron(config.cronSchedule)} (по умолчанию из .env)`;
 }
 
-function daysText(days: number[]): string {
+function daysText(group: number, days: number[]): string {
   const chosen = days.length ? `Выбрано: ${formatDays(days)}` : "Пока ничего не выбрано";
   return [
-    `Сейчас запись публикуется: ${currentScheduleText()}.`,
+    `Сейчас запись публикуется: ${currentScheduleText(group)}.`,
     "",
     "Выберите дни недели, в которые бот публикует запись (нажмите ещё раз, чтобы снять выбор), или сбросьте расписание к значению по умолчанию.",
     chosen,
@@ -94,10 +95,10 @@ export async function startScheduleDialog(
   await dropDialog(chatId, userId);
 
   const res = await api.sendMessageToChat(chatId, {
-    text: daysText([]),
+    text: daysText(adminOfChatId, []),
     attachments: [scheduleDaysKeyboard(userId, [])],
   });
-  dialogs.set(key(chatId, userId), { step: "days", days: [], messageId: res.message.body.mid });
+  dialogs.set(key(chatId, userId), { group: adminOfChatId, step: "days", days: [], messageId: res.message.body.mid });
   return "started";
 }
 
@@ -129,12 +130,12 @@ async function finish(
   const time = `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
   const expression = buildCron(dialog.days, hours, minutes, seconds);
 
-  applySchedule(expression);
-  saveSchedule({ cron: expression, days: dialog.days, time });
+  applySchedule(dialog.group, expression);
+  saveSchedule(dialog.group, { cron: expression, days: dialog.days, time });
   dialogs.delete(key(chatId, userId));
 
   await api.editMessage(chatId, dialog.messageId, {
-    text: `✅ Расписание сохранено: ${formatDays(dialog.days)} в ${time} (${config.timezone}).\nБот будет публиковать новую запись в эти дни, ${gamesText()}.`,
+    text: `✅ Расписание сохранено: ${formatDays(dialog.days)} в ${time} (${config.timezone}).\nБот будет публиковать новую запись в эти дни, ${gamesText(dialog.group)}.`,
     attachments: [],
   });
   return "Расписание сохранено";
@@ -156,7 +157,7 @@ export async function handleScheduleCallback(
         ? dialog.days.filter((d) => d !== action.d)
         : [...dialog.days, action.d];
       await api.editMessage(chatId, dialog.messageId, {
-        text: daysText(dialog.days),
+        text: daysText(dialog.group, dialog.days),
         attachments: [scheduleDaysKeyboard(userId, dialog.days)],
       });
       return "Ок";
@@ -192,11 +193,11 @@ export async function handleScheduleCallback(
     }
     case "sch_reset": {
       // Забываем расписание из /расписание — снова действует CRON_SCHEDULE из .env.
-      deleteSchedule();
-      applySchedule(config.cronSchedule);
+      deleteSchedule(dialog.group);
+      applySchedule(dialog.group, config.cronSchedule);
       dialogs.delete(key(chatId, userId));
       await api.editMessage(chatId, dialog.messageId, {
-        text: `♻️ Расписание сброшено. Теперь запись публикуется ${currentScheduleText()}, часовой пояс ${config.timezone}; ${gamesText()}.`,
+        text: `♻️ Расписание сброшено. Теперь запись публикуется ${currentScheduleText(dialog.group)}, часовой пояс ${config.timezone}; ${gamesText(dialog.group)}.`,
         attachments: [],
       });
       return "Расписание сброшено";
