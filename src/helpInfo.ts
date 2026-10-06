@@ -1,3 +1,4 @@
+import { getPayment } from "./settingsStore";
 import { config } from "./config";
 import { currentScheduleText } from "./scheduleLogic";
 import { getSession, getVoteSession } from "./store";
@@ -30,14 +31,15 @@ function personalStatus(groupChatId: number, userId: number): string[] {
   return ["Ваш статус:", `• Запись: ${signup}`, `• Голосование за MVP: ${voting}`];
 }
 
-function reminders(): string[] {
+function reminders(chatId: number): string[] {
+  const payment = getPayment(chatId);
   const out: string[] = [];
   if (config.reminderHoursBefore > 0) {
     out.push(`⏰ За ${config.reminderHoursBefore} ч до игры бот напомнит в чате, сколько людей в основе и резерве.`);
   }
   if (config.paymentHoursBefore > 0 || config.paymentHoursAfter > 0) {
     out.push(
-      `💰 Оплата: ${config.paymentAmount} ₽ с игрока основы на ${config.paymentDetails}. Бот напомнит и отметит вас` +
+      `💰 Оплата: ${payment.amount} ₽ с игрока основы на ${payment.details}. Бот напомнит и отметит вас` +
         (config.paymentHoursBefore > 0 ? ` каждый час за ${config.paymentHoursBefore} ч до игры` : "") +
         (config.paymentHoursAfter > 0 ? ` и ${config.paymentHoursAfter} ч после` : "") +
         ".",
@@ -74,7 +76,7 @@ function userCommands(): string[] {
 }
 
 export function buildUserHelp(groupChatId: number, userId: number): string {
-  const extra = reminders();
+  const extra = reminders(groupChatId);
   return [
     "ℹ️ Как пользоваться ботом записи на футбол",
     "",
@@ -109,6 +111,7 @@ export function buildAdminHelp(groupChatId: number, userId: number): string {
     "• Запись идёт до начала игры: в момент игры бот закрывает её (кнопки снимаются, «+»/«-» больше не работают)",
     "• /описание Футбол в Среда 30.09.2026 года, с новой строки В 20:30 - 21:30 — шапка записи: день недели и дата подставятся сами, первое время — начало игры для напоминаний и оплаты",
     "• /описание — показать шапку; /описание сброс — стандартная шапка",
+    "• /оплата 350 Т-банк 89990000000 Имя — сумма с игрока и реквизиты этого чата; /оплата — показать, /оплата сброс — из .env",
     "• /игры Пн 12:00 Ср 21:20, Чт 12:00 Вс 20:20 — у каждой игры свой день публикации и своё время (вместо /расписание); /игры — показать, /игры сброс — обычное расписание",
     "• /расписание (кнопка «🗓 Расписание») — дни и время авто-публикации (ЧЧ:ММ:СС); там же «♻️ Сбросить расписание» — вернуть значение из .env",
     "",
@@ -131,7 +134,7 @@ export function buildAdminHelp(groupChatId: number, userId: number): string {
     "",
     "— Команды участников (их видят все) —",
     ...userCommands(),
-    ...(reminders().length ? ["", ...reminders()] : []),
+    ...(reminders(groupChatId).length ? ["", ...reminders(groupChatId)] : []),
   ].join("\n");
 }
 

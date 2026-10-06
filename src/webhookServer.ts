@@ -12,6 +12,7 @@ import { dmTarget } from "./dmTarget";
 import * as draft from "./draftLogic";
 import { DESCRIPTION_RE, handleDescriptionAndReply } from "./descriptionLogic";
 import { GAMES_RE, gamesCommand } from "./gameSlotsLogic";
+import { PAYMENT_RE, paymentCommand } from "./paymentLogic";
 import * as scheduleLogic from "./scheduleLogic";
 import * as voteLogic from "./voteLogic";
 import { MaxUpdate } from "./types";
@@ -115,6 +116,12 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
       await api.sendMessageToChat(chatId, { text: await gamesCommand(target, userId, gamesDm[2]) });
       return;
     }
+    // /оплата в личке — реквизиты выбранного чата, ответ сюда же.
+    const payDm = text.match(PAYMENT_RE);
+    if (payDm) {
+      await api.sendMessageToChat(chatId, { text: await paymentCommand(target, userId, payDm[2]) });
+      return;
+    }
     // /статус в личке — статус записи выбранного чата, ответ сюда же.
     if (STATUS_RE.test(text)) {
       await api.sendMessageToChat(chatId, { text: buildStatusText(target) });
@@ -208,6 +215,13 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
     return;
   }
 
+  // 1.46) /оплата — сумма и реквизиты чата (только админ).
+  const pay = text.match(PAYMENT_RE);
+  if (pay) {
+    await api.sendMessageToChat(chatId, { text: await paymentCommand(chatId, userId, pay[2]) });
+    return;
+  }
+
   // 1.5) Объединение игроков в рейтинге MVP: /объединить Рус = Ruslan (только админ).
   const merge = text.match(actions.MERGE_RE);
   if (merge) {
@@ -262,7 +276,7 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
 // Все команды бота — для подсказки, если команду написали с ошибкой.
 const KNOWN_COMMANDS = [
   "статус", "голос", "имя", "mvp", "мвп", "help", "инструкция", "помощь", "составы",
-  "старт", "закрыть", "описание", "расписание", "игры", "голосование", "итоги", "объединить",
+  "старт", "закрыть", "описание", "расписание", "игры", "оплата", "голосование", "итоги", "объединить",
   "удалить", "переименовать", "заменить", "поменять", "дележка", "всем", "мвпСезонныйСброс", "мвпОбщийСброс",
 ];
 

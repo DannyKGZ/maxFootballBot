@@ -1,5 +1,5 @@
 import { config } from "./config";
-import { MvpEntry, getRosterTemplate } from "./settingsStore";
+import { MvpEntry, getPayment, getRosterTemplate } from "./settingsStore";
 import { FootballSession, VoteCandidate, VoteSession } from "./types";
 
 const WEEKDAYS_RU = [
@@ -263,6 +263,7 @@ export function mention(userId: number, name: string): string {
 export function buildPaymentText(session: FootballSession, phase: "before" | "after", hours: number): string {
   const date = new Date(session.date);
   const main = session.players.filter((p) => !p.isReserve);
+  const payment = getPayment(session.chatId);
   const byUser = new Map<number, typeof main>();
   for (const p of main) byUser.set(p.userId, [...(byUser.get(p.userId) ?? []), p]);
 
@@ -271,7 +272,7 @@ export function buildPaymentText(session: FootballSession, phase: "before" | "af
     // Для упоминания нужно полное имя из профиля (см. mention): у записавшегося
     // себя это profileName, у записавшего друзей — addedByFullName.
     const payer = self.profileName ?? self.addedByFullName ?? self.addedByName ?? self.displayName;
-    const sum = players.length * config.paymentAmount;
+    const sum = players.length * payment.amount;
     const who = players.length > 1 || players[0] !== self || !self.profileName
       ? ` (${players.map((p) => escapeHtml(p.displayName)).join(", ")})`
       : "";
@@ -284,7 +285,7 @@ export function buildPaymentText(session: FootballSession, phase: "before" | "af
       : "игра прошла — не забудьте оплатить";
   return [
     `💰 Оплата за игру ${WEEKDAYS_RU[date.getDay()]} ${formatDateRu(date)}, ${gameTimeOf(session)} (${when})`,
-    `За игру ${config.paymentAmount} ₽ с игрока на ${escapeHtml(config.paymentDetails)}`,
+    `За игру ${payment.amount} ₽ с игрока на ${escapeHtml(payment.details)}`,
     "",
     ...lines,
   ].join("\n");

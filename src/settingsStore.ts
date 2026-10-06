@@ -65,6 +65,28 @@ export function setGameSlots(chatId: number, slots: GameSlot[] | null): void {
   else db().prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(`game_slots:${chatId}`, JSON.stringify(slots));
 }
 
+// ---- Оплата чата (/оплата) ----
+
+export interface Payment {
+  amount: number; // ₽ с игрока
+  details: string; // куда платить
+}
+
+/** Сумма и реквизиты чата: из /оплата, иначе PAYMENT_AMOUNT / PAYMENT_DETAILS из .env. */
+export function getPayment(chatId: number): Payment {
+  const row = db().prepare("SELECT value FROM meta WHERE key = ?").get(`payment:${chatId}`) as { value: string } | undefined;
+  return row ? (JSON.parse(row.value) as Payment) : { amount: config.paymentAmount, details: config.paymentDetails };
+}
+
+export function hasOwnPayment(chatId: number): boolean {
+  return Boolean(db().prepare("SELECT 1 FROM meta WHERE key = ?").get(`payment:${chatId}`));
+}
+
+export function setPayment(chatId: number, payment: Payment | null): void {
+  if (!payment) db().prepare("DELETE FROM meta WHERE key = ?").run(`payment:${chatId}`);
+  else db().prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(`payment:${chatId}`, JSON.stringify(payment));
+}
+
 // ---- Своё имя в списке (/имя, кнопка «✏️ Изменить имя») ----
 
 /** Как показывать человека в списке при записи через «+»; null — имя из профиля MAX. */
