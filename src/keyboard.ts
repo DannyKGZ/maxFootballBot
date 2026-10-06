@@ -84,6 +84,7 @@ function userMenuRows(): KeyboardButton[][] {
   return [
     [callbackButton("➕ Записаться", { a: "join" }), callbackButton("➖ Убрать себя", { a: "leave" })],
     [callbackButton("📋 Статус", { a: "show_status" }), callbackButton("🏆 Рейтинг MVP", { a: "show_mvp" })],
+    [callbackButton("✏️ Изменить имя", { a: "nick" })],
   ];
 }
 
@@ -199,7 +200,8 @@ export function voteCandidatesKeyboard(
     payload: {
       buttons: candidates.map((c) => {
         const n = counts[c.index] || 0;
-        return [callbackButton(`${c.displayName} ${progressBar(n, total)} ${n}`, { a: "mvp_vote", c: c.index })];
+        // Прогресс-бар — только у тех, за кого уже голосовали; остальные — просто имя.
+        return [callbackButton(n > 0 ? `${c.displayName} ${progressBar(n, total)} ${n}` : c.displayName, { a: "mvp_vote", c: c.index })];
       }),
     },
   };

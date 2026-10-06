@@ -4,6 +4,7 @@ module.exports = {
     await t.say(1, "/старт");
     await t.say(2, "+");
     await t.say(2, "+Валера");
+    await t.say(3, "+"); // Рома не голосует — иначе после всех голосов голосование закрылось бы само
     await t.say(1, "/голосование");
     await t.click(2, t.find(/Голосование за MVP/), "Валера");
     await t.say(2, "+");
@@ -13,7 +14,7 @@ module.exports = {
     t.ok(t.log.includes("голосований 1") && t.log.includes("открытых вопросов 1"), "после рестарта восстановлены голосование и вопрос", t.log.split("\n")[0]);
 
     await t.click(2, t.find(/Голосование за MVP/), "Валера");
-    t.ok(t.find(/Голосование за MVP/).text.includes("✅ Ruslan → Валера, Валера") && t.buttons(t.find(/Голосование за MVP/)).includes("Валера ▰▰▰▰▰▰▰▰▰▰ 2"), "голос после рестарта добавился к старым");
+    t.ok(t.find(/Голосование за MVP/).text.includes("✅ Ruslan → Валера, Валера") && t.buttons(t.find(/Голосование за MVP/)).includes("Валера ▰▰▰▰▰▰▰▱▱▱ 2"), "голос после рестарта добавился к старым");
     await t.click(2, t.find(/Голосование за MVP/), "Ruslan");
     t.ok(t.toast().includes("закончились"), "лимит голосов учитывает голоса до рестарта");
     await t.click(2, t.find(/Хотите записать другого/), "Да");

@@ -55,6 +55,8 @@ export const config = {
   paymentDetails: process.env.PAYMENT_DETAILS || "реквизиты не указаны (PAYMENT_DETAILS в .env)",
   paymentHoursBefore: optionalInt("PAYMENT_HOURS_BEFORE", 3),
   paymentHoursAfter: optionalInt("PAYMENT_HOURS_AFTER", 2),
+  // Голосование за MVP запускается само через N минут после начала игры (60 → в 21:30 при игре в 20:30; 0 — выкл.).
+  voteAutoStartMinutes: optionalInt("VOTE_AUTO_START_MINUTES", 60),
   // Голосование закрывается само через N часов после старта (0 — только вручную).
   voteAutoCloseHours: optionalInt("VOTE_AUTO_CLOSE_HOURS", 24),
   // Как часто проверять напоминания и автозакрытие. Меняется только в тестах.

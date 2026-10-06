@@ -179,6 +179,8 @@ class Harness {
       PAYMENT_HOURS_BEFORE: "0",
       PAYMENT_HOURS_AFTER: "0",
       VOTE_AUTO_CLOSE_HOURS: "0",
+      VOTE_AUTO_START_MINUTES: "0", // автозапуск голосования проверяется отдельным сценарием
+      VOTE_AUTO_START_MINUTES: "0", // автозапуск голосования проверяется отдельным сценарием
       ...(this.scenario.env || {}),
     };
     this.log = "";

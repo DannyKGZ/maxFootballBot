@@ -1,3 +1,4 @@
+import { config } from "./config";
 import * as api from "./maxApi";
 import { voteCandidatesKeyboard } from "./keyboard";
 import {
@@ -17,6 +18,7 @@ import {
   getSession,
   getVoteSession,
   setRatingMessage,
+  setSession,
   setVoteSession,
   takeSentMessagesForCleanup,
 } from "./store";
@@ -62,7 +64,28 @@ export function pickGameForVote(chatId: number, now = Date.now()): FootballSessi
 export async function startVote(chatId: number, adminUserId: number): Promise<StartVoteOutcome> {
   const admin = await isChatAdmin(chatId, adminUserId);
   if (!admin) return "not_admin";
+  return openVote(chatId);
+}
 
+/**
+ * По таймеру: через VOTE_AUTO_START_MINUTES после начала игры (по умолчанию в
+ * 21:30 при игре в 20:30) голосование открывается само — один раз на игру.
+ */
+export async function autoStartVoteIfDue(session: FootballSession, now = Date.now()): Promise<boolean> {
+  if (config.voteAutoStartMinutes <= 0 || session.voteAutoStarted) return false;
+  const due = new Date(session.date).getTime() + config.voteAutoStartMinutes * 60_000;
+  if (now < due) return false;
+  // Только в течение 6 часов после срока: по давно прошедшей игре (например, после
+  // долгого простоя бота) голосование само не открываем — это сделает админ.
+  if (now > due + 6 * 3_600_000) return false;
+  if (!session.players.some((p) => !p.isReserve)) return false;
+  session.voteAutoStarted = true; // отмечаем до запуска: при сбое лучше пропустить, чем запустить дважды
+  setSession(session);
+  if (getVoteSession(session.chatId)) return false; // админ уже запустил вручную
+  return (await openVote(session.chatId)) === "started";
+}
+
+async function openVote(chatId: number): Promise<StartVoteOutcome> {
   if (getVoteSession(chatId)) return "already_active";
 
   const session = pickGameForVote(chatId);
@@ -176,6 +199,11 @@ export async function castVote(
   });
   setVoteSession(vote);
 
+  // Все игроки основы отдали все голоса — закрываем и показываем итоги сразу.
+  if (vote.votes.length >= totalVotes(vote)) {
+    await finalizeVote(chatId, "all_voted");
+    return "voted";
+  }
   await repostVoteMessage(chatId);
   return "voted";
 }
@@ -227,14 +255,20 @@ export async function finishVote(chatId: number, adminUserId: number): Promise<F
  * чате), затем удаляются прочие сообщения бота с прошлой очистки — кроме
  * записей (текущей и той, за которую голосовали) и итога.
  */
-export async function finalizeVote(chatId: number, auto: boolean): Promise<void> {
+export async function finalizeVote(chatId: number, reason: boolean | "all_voted"): Promise<void> {
   const vote = getVoteSession(chatId);
   if (!vote) return;
   // Сразу убираем из стора, чтобы повторный вызов (кнопка + таймер) не посчитал MVP дважды.
   deleteVoteSession(chatId);
+  if (vote.messageId) await api.deleteMessage(chatId, vote.messageId).catch(() => undefined);
 
   addMvpWins(chatId, getVoteWinners(vote));
-  const note = auto ? "\n\nГолосование закрыто автоматически по времени." : "";
+  const note =
+    reason === "all_voted"
+      ? "\n\nВсе проголосовали — голосование закрыто автоматически."
+      : reason
+        ? "\n\nГолосование закрыто автоматически по времени."
+        : "";
   const res = await api.sendMessageToChat(chatId, { text: buildMvpResultText(vote) + note });
 
   const keep = [getSession(chatId)?.messageId, vote.rosterMessageId, res.message.body.mid];

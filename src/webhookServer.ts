@@ -6,7 +6,7 @@ import * as sessionLogic from "./sessionLogic";
 import * as actions from "./actions";
 import * as adminPanel from "./adminPanel";
 import { buildStatusText } from "./statusInfo";
-import { handleDmUserAction, isDmUserAction } from "./dmMenu";
+import { NICK_RE, handleAwaitedNick, handleDmUserAction, isDmUserAction, nickCommand } from "./dmMenu";
 import * as rosterEdit from "./rosterEdit";
 import * as draft from "./draftLogic";
 import { DESCRIPTION_RE, handleDescriptionAndReply } from "./descriptionLogic";
@@ -67,8 +67,15 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
 
   // 0) Личный чат с ботом — это панель администратора (кнопки, скрытые от участников).
   if (message.recipient?.chat_type === "dialog") {
+    if (await handleAwaitedNick(chatId, userId, text)) return;
     if (await rosterEdit.handleAwaitedRename(chatId, userId, text)) return;
     if (await scheduleLogic.handleAwaitedTime(chatId, userId, text)) return;
+    // /имя Новое имя — своё имя в списке.
+    const nickDm = text.match(NICK_RE);
+    if (nickDm) {
+      await api.sendMessageToChat(chatId, { text: await nickCommand(userId, nickDm[2]) });
+      return;
+    }
     // Правка списка общего чата из лички: /удалить 3, /переименовать 3 Имя.
     const rmDm = text.match(rosterEdit.REMOVE_RE);
     if (rmDm) {
@@ -131,6 +138,13 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
 
   // 1.1) Ручной ввод времени на шаге диалога настройки расписания.
   if (await scheduleLogic.handleAwaitedTime(chatId, userId, text)) return;
+
+  // 1.15) /имя Новое имя — своё имя в списке (для всех).
+  const nick = text.match(NICK_RE);
+  if (nick) {
+    await api.sendMessageToChat(chatId, { text: await nickCommand(userId, nick[2]) });
+    return;
+  }
 
   // 1.2) /голос — голосование внизу чата (для всех); если его нет — админ запускает.
   if (VOTE_RE.test(text)) {
@@ -228,7 +242,7 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
 
 // Все команды бота — для подсказки, если команду написали с ошибкой.
 const KNOWN_COMMANDS = [
-  "статус", "голос", "mvp", "мвп", "help", "инструкция", "помощь", "составы",
+  "статус", "голос", "имя", "mvp", "мвп", "help", "инструкция", "помощь", "составы",
   "старт", "закрыть", "описание", "расписание", "голосование", "итоги", "объединить",
   "удалить", "переименовать", "заменить", "поменять", "дележка", "всем", "мвпСезонныйСброс", "мвпОбщийСброс",
 ];

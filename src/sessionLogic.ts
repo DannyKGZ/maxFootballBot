@@ -1,5 +1,6 @@
 import { config } from "./config";
 import { computeNextGameDate, isSignupOpen } from "./gameDays";
+import { getNickname, setNickname } from "./settingsStore";
 import * as api from "./maxApi";
 import {
   addAnotherKeyboard,
@@ -284,7 +285,8 @@ async function removePlayerAt(session: FootballSession, index: number): Promise<
 /** Игрок из профиля MAX для голого "+": first_name (+ last_name), в скобках name. */
 function playerFromProfile(sender: MaxUser): NewPlayer {
   return {
-    displayName: sender.first_name.trim(),
+    // Своё имя из /имя (если задано), иначе имя из профиля MAX.
+    displayName: getNickname(sender.user_id) ?? sender.first_name.trim(),
     lastName: sender.last_name?.trim() || undefined,
     profileName: fullName(sender),
   };
@@ -612,4 +614,29 @@ export async function adminSwap(session: FootballSession, i: number, j: number):
   [session.players[i], session.players[j]] = [session.players[j], session.players[i]];
   recomputeReserveFlags(session);
   await repostRoster(session);
+}
+
+// ---- Своё имя в списке ----
+
+/**
+ * Человек задаёт, как его показывать в списке (например, трое «Русланов» —
+ * «Руслан Большой», «Рус»…). Имя запоминается для будущих записей через «+»,
+ * а в текущей записи его собственная строка (через «+») сразу переименовывается.
+ * null — успех, иначе текст ошибки.
+ */
+export async function setOwnNickname(groupChatId: number, userId: number, name: string): Promise<string | null> {
+  const nick = name.trim();
+  const error = validateNames([nick]);
+  if (error) return error;
+  setNickname(userId, nick);
+  const session = getSession(groupChatId);
+  const own = session?.players.filter((p) => p.userId === userId && p.profileName) ?? [];
+  if (session && own.length) {
+    for (const p of own) {
+      p.displayName = nick;
+      delete p.lastName;
+    }
+    await pushRosterUpdate(session);
+  }
+  return null;
 }

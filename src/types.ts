@@ -23,6 +23,7 @@ export interface FootballSession {
   notified?: string[]; // какие уведомления уже разосланы: "reminder", "pay-3" … "pay+2"
   paymentMessageId?: string | null; // последнее напоминание об оплате — следующее его заменяет
   closedAt?: number; // запись закрыта, потому что игра началась (список зафиксирован)
+  voteAutoStarted?: boolean; // голосование за MVP по этой игре уже запускалось автоматически
   draft?: Draft; // дележка на команды
 }
 
@@ -170,6 +171,7 @@ export type ButtonAction =
   | { a: "leave" }
   | { a: "show_mvp" }
   | { a: "show_status" } // /статус кнопкой (в личке с ботом)
+  | { a: "nick" } // «✏️ Изменить имя» в личке — бот ждёт новое имя сообщением
   // Редактор списка в личке админа (k — ключ игрока userId:joinedAt)
   | { a: "adm_edit" }
   // Дележка на команды (k — ключ игрока)

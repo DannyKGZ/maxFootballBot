@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS mvp_aliases (
   PRIMARY KEY (chat_id, from_key)
 );
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS nicknames (user_id INTEGER PRIMARY KEY, name TEXT NOT NULL); -- своё имя в списке (/имя)
 `;
 
 let instance: Database.Database | null = null;

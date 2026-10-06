@@ -3,8 +3,8 @@ import * as actions from "./actions";
 import * as api from "./maxApi";
 import { dmRemoveKeyboard, userMenuKeyboard } from "./keyboard";
 import { buildMvpRatingText } from "./messageFormatter";
-import { joinSelf, ownEntries, removeOwnByName } from "./sessionLogic";
-import { getMvpRating, getSeasonStart } from "./settingsStore";
+import { joinSelf, ownEntries, removeOwnByName, setOwnNickname } from "./sessionLogic";
+import { getMvpRating, getNickname, getSeasonStart } from "./settingsStore";
 import { buildStatusText } from "./statusInfo";
 import { ButtonAction, MaxUser } from "./types";
 
@@ -14,7 +14,37 @@ import { ButtonAction, MaxUser } from "./types";
  * общего чата CHAT_ID; ответы приходят сюда же, в личку.
  */
 
-const DM_USER_ACTIONS = new Set(["join", "leave", "show_status", "show_mvp", "help", "dm_rm", "dm_rm_cancel"]);
+const DM_USER_ACTIONS = new Set(["join", "leave", "show_status", "show_mvp", "help", "dm_rm", "dm_rm_cancel", "nick"]);
+
+/** «/имя Руслан Большой» (в чате или в личке) — своё имя в списке. */
+export const NICK_RE = /^\/(имя|name)(?:\s+([\s\S]+))?$/i;
+
+// Кто после «✏️ Изменить имя» должен прислать новое имя: `${dmChatId}:${userId}`.
+const awaitingNick = new Set<string>();
+
+/** Ответ на /имя или на присланное после кнопки имя. */
+async function applyNick(userId: number, name: string): Promise<string> {
+  const error = await setOwnNickname(config.defaultChatId, userId, name);
+  return error ?? `✅ Готово! Теперь в списке вы — «${name.trim()}». Так бот будет записывать вас и дальше.`;
+}
+
+/** /имя Новое имя — из общего чата или лички. */
+export async function nickCommand(userId: number, arg?: string): Promise<string> {
+  if (!arg?.trim()) {
+    const current = getNickname(userId);
+    return `${current ? `Сейчас в списке вы — «${current}».` : "Своё имя ещё не задано — в списке ваше имя из профиля MAX."}\nЧтобы изменить: /имя Новое имя (например, /имя Руслан Большой).`;
+  }
+  return applyNick(userId, arg);
+}
+
+/** Текст в личке после «✏️ Изменить имя». true — это было новое имя. */
+export async function handleAwaitedNick(dmChatId: number, userId: number, text: string): Promise<boolean> {
+  const key = `${dmChatId}:${userId}`;
+  if (!awaitingNick.has(key) || text.startsWith("/")) return false;
+  awaitingNick.delete(key);
+  await api.sendMessageToChat(dmChatId, { text: await applyNick(userId, text), attachments: [userMenuKeyboard()] });
+  return true;
+}
 
 export function isDmUserAction(action: ButtonAction): boolean {
   return DM_USER_ACTIONS.has(action.a);
@@ -68,6 +98,14 @@ export async function handleDmUserAction(
       return "Рейтинг ниже";
     case "help":
       return (await actions.sendHelp(group, user.user_id)).toast ?? "Готово";
+    case "nick": {
+      awaitingNick.add(`${dmChatId}:${user.user_id}`);
+      const current = getNickname(user.user_id) ?? user.first_name;
+      await api.sendMessageToChat(dmChatId, {
+        text: `✏️ Сейчас в списке вы — «${current}».\nНапишите сообщением, как вас показывать (например, «Руслан Большой»). Можно менять сколько угодно раз.`,
+      });
+      return "Напишите новое имя";
+    }
     default:
       return "Готово";
   }

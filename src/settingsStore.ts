@@ -42,6 +42,18 @@ export function setGameTime(time: string): void {
   db().prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('game_time', ?)").run(time);
 }
 
+// ---- Своё имя в списке (/имя, кнопка «✏️ Изменить имя») ----
+
+/** Как показывать человека в списке при записи через «+»; null — имя из профиля MAX. */
+export function getNickname(userId: number): string | null {
+  const row = db().prepare("SELECT name FROM nicknames WHERE user_id = ?").get(userId) as { name: string } | undefined;
+  return row?.name ?? null;
+}
+
+export function setNickname(userId: number, name: string): void {
+  db().prepare("INSERT OR REPLACE INTO nicknames (user_id, name) VALUES (?, ?)").run(userId, name);
+}
+
 // ---- Шаблон шапки записи ----
 
 /**

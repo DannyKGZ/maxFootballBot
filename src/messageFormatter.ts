@@ -185,7 +185,10 @@ export function buildMvpResultText(vote: VoteSession): string {
       ? `Победитель: ${winners[0]} — ${topCount} ${votesWord(topCount)}`
       : `Ничья: ${winners.join(", ")} — по ${topCount} ${votesWord(topCount)}`;
 
-  const resultLines = ranked.map((c, i) => `${i + 1}. ${barLine(vote, c, c.count)}${c.count ? ` · ${votersOf(vote, c.index)}` : ""}`);
+  // В итогах — только те, за кого голосовали.
+  const resultLines = ranked
+    .filter((c) => c.count > 0)
+    .map((c, i) => `${i + 1}. ${barLine(vote, c, c.count)} · ${votersOf(vote, c.index)}`);
 
   return [
     header,

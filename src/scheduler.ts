@@ -4,7 +4,7 @@ import { closeSignupIfStarted, publishNewSession } from "./sessionLogic";
 import { runNotifications } from "./notifications";
 import { loadSchedule } from "./settingsStore";
 import { getAllSessions, getAllVoteSessions } from "./store";
-import { finalizeVote } from "./voteLogic";
+import { autoStartVoteIfDue, finalizeVote } from "./voteLogic";
 
 let task: ScheduledTask | null = null;
 
@@ -55,6 +55,15 @@ async function tick(now = Date.now()): Promise<void> {
   }
 
   await runNotifications(now);
+
+  // Через час после начала игры (в 21:30) голосование за MVP открывается само.
+  for (const session of getAllSessions()) {
+    try {
+      await autoStartVoteIfDue(session, now);
+    } catch (err) {
+      console.error("[scheduler] ошибка автозапуска голосования:", err);
+    }
+  }
 
   if (config.voteAutoCloseHours > 0) {
     for (const vote of getAllVoteSessions()) {

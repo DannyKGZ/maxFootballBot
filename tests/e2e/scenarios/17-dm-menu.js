@@ -3,7 +3,7 @@ const { dmOf, GROUP } = require("../harness");
 module.exports = {
   name: "Личка с ботом: приветствие и кнопки участника",
   async run(t) {
-    const USER_MENU = "➕ Записаться|➖ Убрать себя|📋 Статус|🏆 Рейтинг MVP|ℹ️ Инструкция";
+    const USER_MENU = "➕ Записаться|➖ Убрать себя|📋 Статус|🏆 Рейтинг MVP|✏️ Изменить имя|ℹ️ Инструкция";
     await t.botStarted(4);
     const menu = t.find(/^👋 Это бот записи/, dmOf(4));
     t.ok(!!menu && t.buttons(menu).join("|") === USER_MENU, "участник открыл бота — приветствие с кнопками", menu && t.buttons(menu));
