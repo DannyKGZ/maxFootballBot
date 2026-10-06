@@ -1,5 +1,5 @@
 import { config } from "./config";
-import { getGameTime, loadSchedule } from "./settingsStore";
+import { GameSlot, getGameSlots, getGameTime, loadSchedule } from "./settingsStore";
 
 /**
  * День игры считается от расписания публикации: игра — на следующий день после
@@ -31,8 +31,34 @@ export function effectiveScheduleCron(chatId: number): string {
   return loadSchedule(chatId)?.cron ?? config.cronSchedule;
 }
 
-/** Дни недели игр: следующий день после каждого дня публикации. */
+/** Ближайший момент строго после `from` в день недели `day` и время «ЧЧ:ММ». */
+function nextWeekly(from: Date, day: number, time: string): Date {
+  const [hours, minutes] = time.split(":").map(Number);
+  for (let add = 0; add <= 7; add++) {
+    const d = new Date(from);
+    d.setDate(d.getDate() + add);
+    d.setHours(hours, minutes, 0, 0);
+    if (d.getDay() === day && d.getTime() > from.getTime()) return d;
+  }
+  throw new Error("недостижимо: за 8 дней нужный день недели есть всегда");
+}
+
+const earliest = (dates: Date[]) => dates.reduce((a, b) => (b.getTime() < a.getTime() ? b : a));
+
+/** Cron-выражения публикации по /игры: «0 0 12 * * 1» на каждую пару; null — /игры не настроены. */
+export function slotCrons(chatId: number): string[] | null {
+  const slots = getGameSlots(chatId);
+  if (!slots) return null;
+  return slots.map((s: GameSlot) => {
+    const [h, m] = s.pubTime.split(":").map(Number);
+    return `0 ${m} ${h} * * ${s.pub}`;
+  });
+}
+
+/** Дни недели игр: из /игры, иначе следующий день после каждого дня публикации. */
 export function gameWeekdays(chatId: number): number[] {
+  const slots = getGameSlots(chatId);
+  if (slots) return [...new Set(slots.map((s) => s.game))].sort((a, b) => a - b);
   const weekly = parseWeeklyCron(effectiveScheduleCron(chatId));
   if (!weekly) return [config.gameDayOfWeek];
   return [...new Set(weekly.days.map((d) => (d + 1) % 7))].sort((a, b) => a - b);
@@ -40,6 +66,9 @@ export function gameWeekdays(chatId: number): number[] {
 
 /** Ближайшая игра строго после `from`: ближайший игровой день, время игры. */
 export function computeNextGameDate(chatId: number, from: Date = new Date()): Date {
+  // /игры: у каждой игры своё время (Ср 21:20, Вс 20:20) — берём ближайшую.
+  const slots = getGameSlots(chatId);
+  if (slots) return earliest(slots.map((s) => nextWeekly(from, s.game, s.time)));
   const [hours, minutes] = getGameTime(chatId).split(":").map(Number);
   const days = gameWeekdays(chatId);
   for (let add = 0; add <= 7; add++) {
@@ -53,6 +82,8 @@ export function computeNextGameDate(chatId: number, from: Date = new Date()): Da
 
 /** Когда бот сам опубликует следующую запись (для /статус); null — расписание не еженедельное. */
 export function nextPublicationDate(chatId: number, from: Date = new Date()): Date | null {
+  const slots = getGameSlots(chatId);
+  if (slots) return earliest(slots.map((s) => nextWeekly(from, s.pub, s.pubTime)));
   const weekly = parseWeeklyCron(effectiveScheduleCron(chatId));
   if (!weekly) return null;
   for (let add = 0; add <= 7; add++) {

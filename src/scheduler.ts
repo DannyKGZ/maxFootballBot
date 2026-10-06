@@ -3,37 +3,44 @@ import { config, isManagedChat } from "./config";
 import { closeSignupIfStarted, publishNewSession } from "./sessionLogic";
 import { runNotifications } from "./notifications";
 import { loadSchedule } from "./settingsStore";
+import { slotCrons } from "./gameDays";
 import { getAllSessions, getAllVoteSessions } from "./store";
 import { autoStartVoteIfDue, finalizeVote } from "./voteLogic";
 
-// Своя cron-задача публикации записи у каждого чата.
-const tasks = new Map<number, ScheduledTask>();
+// Свои cron-задачи публикации записи у каждого чата (у /игры — по одной на пару).
+const tasks = new Map<number, ScheduledTask[]>();
 
 /**
  * (Пере)запускает публикацию записи чата по cron-выражению; прежнее расписание
  * этого чата останавливается. Вызывается при старте и после /расписание.
  */
-export function applySchedule(chatId: number, expression: string): void {
-  if (!cron.validate(expression)) {
-    throw new Error(`Некорректное cron-выражение: ${expression}`);
-  }
-  tasks.get(chatId)?.stop();
+export function applySchedule(chatId: number, expression: string | string[]): void {
+  const expressions = Array.isArray(expression) ? expression : [expression];
+  for (const e of expressions) if (!cron.validate(e)) throw new Error(`Некорректное cron-выражение: ${e}`);
+  for (const t of tasks.get(chatId) ?? []) t.stop();
   tasks.set(
     chatId,
-    cron.schedule(
-      expression,
-      async () => {
-        try {
-          console.log(`[scheduler] публикую новую запись в чат ${chatId}`);
-          await publishNewSession(chatId);
-        } catch (err) {
-          console.error(`[scheduler] ошибка публикации записи в чат ${chatId}:`, err);
-        }
-      },
-      { timezone: config.timezone },
+    expressions.map((e) =>
+      cron.schedule(
+        e,
+        async () => {
+          try {
+            console.log(`[scheduler] публикую новую запись в чат ${chatId}`);
+            await publishNewSession(chatId);
+          } catch (err) {
+            console.error(`[scheduler] ошибка публикации записи в чат ${chatId}:`, err);
+          }
+        },
+        { timezone: config.timezone },
+      ),
     ),
   );
-  console.log(`[scheduler] чат ${chatId}: запись по расписанию "${expression}" (${config.timezone})`);
+  console.log(`[scheduler] чат ${chatId}: запись по расписанию ${expressions.map((e) => `"${e}"`).join(", ")} (${config.timezone})`);
+}
+
+/** Действующее расписание чата: /игры, иначе /расписание, иначе CRON_SCHEDULE. */
+export function applyChatSchedule(chatId: number): void {
+  applySchedule(chatId, slotCrons(chatId) ?? loadSchedule(chatId)?.cron ?? config.cronSchedule);
 }
 
 /**
@@ -80,7 +87,7 @@ let ticking = false;
 /** Старт: расписание, сохранённое админом (иначе CRON_SCHEDULE), и периодические проверки. */
 export function startScheduler(): void {
   if (config.chatIds.length === 0) console.warn("[scheduler] CHAT_IDS (CHAT_ID) не задан — публиковать запись некуда");
-  for (const chatId of config.chatIds) applySchedule(chatId, loadSchedule(chatId)?.cron ?? config.cronSchedule);
+  for (const chatId of config.chatIds) applyChatSchedule(chatId);
   setInterval(() => {
     if (ticking) return; // предыдущая проверка ещё идёт (очистка чата может занять время)
     ticking = true;

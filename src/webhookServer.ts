@@ -11,6 +11,7 @@ import * as rosterEdit from "./rosterEdit";
 import { dmTarget } from "./dmTarget";
 import * as draft from "./draftLogic";
 import { DESCRIPTION_RE, handleDescriptionAndReply } from "./descriptionLogic";
+import { GAMES_RE, gamesCommand } from "./gameSlotsLogic";
 import * as scheduleLogic from "./scheduleLogic";
 import * as voteLogic from "./voteLogic";
 import { MaxUpdate } from "./types";
@@ -108,6 +109,12 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
       await handleDescriptionAndReply(target, chatId, userId, descDm[2]);
       return;
     }
+    // /игры в личке — игры выбранного чата, ответ сюда же.
+    const gamesDm = text.match(GAMES_RE);
+    if (gamesDm) {
+      await api.sendMessageToChat(chatId, { text: await gamesCommand(target, userId, gamesDm[2]) });
+      return;
+    }
     // /статус в личке — статус записи выбранного чата, ответ сюда же.
     if (STATUS_RE.test(text)) {
       await api.sendMessageToChat(chatId, { text: buildStatusText(target) });
@@ -194,6 +201,13 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
     return;
   }
 
+  // 1.45) /игры — свои дни публикации и игр со своим временем (только админ).
+  const games = text.match(GAMES_RE);
+  if (games) {
+    await api.sendMessageToChat(chatId, { text: await gamesCommand(chatId, userId, games[2]) });
+    return;
+  }
+
   // 1.5) Объединение игроков в рейтинге MVP: /объединить Рус = Ruslan (только админ).
   const merge = text.match(actions.MERGE_RE);
   if (merge) {
@@ -248,7 +262,7 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
 // Все команды бота — для подсказки, если команду написали с ошибкой.
 const KNOWN_COMMANDS = [
   "статус", "голос", "имя", "mvp", "мвп", "help", "инструкция", "помощь", "составы",
-  "старт", "закрыть", "описание", "расписание", "голосование", "итоги", "объединить",
+  "старт", "закрыть", "описание", "расписание", "игры", "голосование", "итоги", "объединить",
   "удалить", "переименовать", "заменить", "поменять", "дележка", "всем", "мвпСезонныйСброс", "мвпОбщийСброс",
 ];
 

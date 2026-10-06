@@ -43,6 +43,28 @@ export function setGameTime(chatId: number, time: string): void {
   db().prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(`game_time:${chatId}`, time);
 }
 
+// ---- Игры чата: пары «публикация → игра» (/игры) ----
+
+/** Пн 12:00 публикуем запись → игра Ср 21:20. Дни — как в cron: 0=вс … 6=сб. */
+export interface GameSlot {
+  pub: number;
+  pubTime: string; // "ЧЧ:ММ"
+  game: number;
+  time: string; // "ЧЧ:ММ" — начало игры
+}
+
+/** Игры чата из /игры; null — обычное расписание (/расписание или CRON_SCHEDULE, игра на следующий день). */
+export function getGameSlots(chatId: number): GameSlot[] | null {
+  const row = db().prepare("SELECT value FROM meta WHERE key = ?").get(`game_slots:${chatId}`) as { value: string } | undefined;
+  const slots = row ? (JSON.parse(row.value) as GameSlot[]) : null;
+  return slots && slots.length ? slots : null;
+}
+
+export function setGameSlots(chatId: number, slots: GameSlot[] | null): void {
+  if (!slots || !slots.length) db().prepare("DELETE FROM meta WHERE key = ?").run(`game_slots:${chatId}`);
+  else db().prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(`game_slots:${chatId}`, JSON.stringify(slots));
+}
+
 // ---- Своё имя в списке (/имя, кнопка «✏️ Изменить имя») ----
 
 /** Как показывать человека в списке при записи через «+»; null — имя из профиля MAX. */

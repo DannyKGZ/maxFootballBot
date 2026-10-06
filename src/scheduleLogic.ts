@@ -7,7 +7,7 @@ import {
 } from "./keyboard";
 import { applySchedule } from "./scheduler";
 import { isChatAdmin } from "./sessionLogic";
-import { deleteSchedule, getGameTime, loadSchedule, saveSchedule } from "./settingsStore";
+import { GameSlot, deleteSchedule, getGameSlots, getGameTime, loadSchedule, saveSchedule, setGameSlots } from "./settingsStore";
 import { gameWeekdays } from "./gameDays";
 import { ButtonAction, ScheduleAction } from "./types";
 
@@ -60,8 +60,15 @@ export function gamesText(chatId: number): string {
   return `игра — на следующий день после публикации: ${formatDays(gameWeekdays(chatId))} в ${getGameTime(chatId)}`;
 }
 
-/** Действующее расписание публикации: из /расписание или CRON_SCHEDULE из .env. */
+/** «Пн 12:00 → игра Ср 21:20; Чт 12:00 → игра Вс 20:20». */
+export function slotsText(slots: GameSlot[]): string {
+  return slots.map((s) => `${DAY_NAMES[s.pub]} ${s.pubTime} → игра ${DAY_NAMES[s.game]} ${s.time}`).join("; ");
+}
+
+/** Действующее расписание публикации: из /игры, /расписание или CRON_SCHEDULE из .env. */
 export function currentScheduleText(chatId: number): string {
+  const slots = getGameSlots(chatId);
+  if (slots) return `${slotsText(slots)} (настроено через /игры)`;
   const saved = loadSchedule(chatId);
   return saved
     ? `${describeCron(saved.cron)} (настроено через /расписание)`
@@ -130,6 +137,7 @@ async function finish(
   const time = `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
   const expression = buildCron(dialog.days, hours, minutes, seconds);
 
+  setGameSlots(dialog.group, null); // /расписание заменяет /игры
   applySchedule(dialog.group, expression);
   saveSchedule(dialog.group, { cron: expression, days: dialog.days, time });
   dialogs.delete(key(chatId, userId));
@@ -194,6 +202,7 @@ export async function handleScheduleCallback(
     case "sch_reset": {
       // Забываем расписание из /расписание — снова действует CRON_SCHEDULE из .env.
       deleteSchedule(dialog.group);
+      setGameSlots(dialog.group, null);
       applySchedule(dialog.group, config.cronSchedule);
       dialogs.delete(key(chatId, userId));
       await api.editMessage(chatId, dialog.messageId, {
