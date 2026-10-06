@@ -3,6 +3,7 @@
 set -euo pipefail
 APP_DIR=/opt/max-football-bot
 APP_USER=maxbot
+cd "$APP_DIR" # sudo -u maxbot не может работать из /root
 
 sudo -u "$APP_USER" "$APP_DIR/deploy/backup.sh"   # свежая копия базы перед обновлением
 sudo -u "$APP_USER" -H bash -c "cd '$APP_DIR' && git pull --ff-only && npm ci && npm run build"
