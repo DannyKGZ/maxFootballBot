@@ -1,3 +1,4 @@
+import { getMaxPlayers } from "./settingsStore";
 import { config } from "./config";
 import { computeNextGameDate, isSignupOpen } from "./gameDays";
 import { getNickname, setNickname } from "./settingsStore";
@@ -22,10 +23,10 @@ import {
 } from "./store";
 import { FootballSession, MaxUser, Player } from "./types";
 
-/** Пересчитывает isReserve строго по позиции в списке (правило: первые MAX_PLAYERS — основа). */
+/** Пересчитывает isReserve строго по позиции в списке (правило: первые /лимит или MAX_PLAYERS — основа). */
 function recomputeReserveFlags(session: FootballSession): void {
   session.players.forEach((player, index) => {
-    player.isReserve = index >= config.maxPlayers;
+    player.isReserve = index >= getMaxPlayers(session.chatId);
   });
 }
 
@@ -610,6 +611,14 @@ export async function adminRenameAt(session: FootballSession, index: number, new
  * Админ меняет местами двух игроков (например, «1 на 12» — игрока основы с
  * резервистом). Основа/резерв пересчитываются по новым позициям.
  */
+/** /лимит изменили — пересчитать основу/резерв текущей записи и показать свежий список. */
+export async function applyMaxPlayers(chatId: number): Promise<void> {
+  const session = getSession(chatId);
+  if (!session) return;
+  recomputeReserveFlags(session);
+  await repostRoster(session);
+}
+
 export async function adminSwap(session: FootballSession, i: number, j: number): Promise<void> {
   [session.players[i], session.players[j]] = [session.players[j], session.players[i]];
   recomputeReserveFlags(session);

@@ -1,5 +1,5 @@
 import { config } from "./config";
-import { MvpEntry, getPayment, getRosterTemplate } from "./settingsStore";
+import { MvpEntry, getMaxPlayers, getPayment, getRosterTemplate } from "./settingsStore";
 import { FootballSession, VoteCandidate, VoteSession } from "./types";
 
 const WEEKDAYS_RU = [
@@ -243,7 +243,7 @@ export function buildReminderText(session: FootballSession): string {
   const when = today ? "Сегодня" : `${WEEKDAYS_RU[date.getDay()]} ${formatDateRu(date)}`;
   return [
     `⏰ ${when} футбол в ${gameTimeOf(session)}.`,
-    `В основе: ${main} из ${config.maxPlayers}, в резерве: ${reserve}.`,
+    `В основе: ${main} из ${getMaxPlayers(session.chatId)}, в резерве: ${reserve}.`,
     "Кто не сможет прийти — напишите «-» или нажмите «Убрать себя», чтобы место досталось резерву.",
   ].join("\n");
 }

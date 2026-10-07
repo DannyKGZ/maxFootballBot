@@ -1,4 +1,4 @@
-import { getPayment } from "./settingsStore";
+import { getMaxPlayers, getPayment } from "./settingsStore";
 import { config } from "./config";
 import { currentScheduleText } from "./scheduleLogic";
 import { getSession, getVoteSession } from "./store";
@@ -49,7 +49,7 @@ function reminders(chatId: number): string[] {
 }
 
 /** Команды участника — одинаковы для всех. */
-function userCommands(): string[] {
+function userCommands(chatId: number): string[] {
   return [
     "Запись на игру:",
     "• «+» или кнопка «➕ Записаться» — записать себя",
@@ -57,7 +57,7 @@ function userCommands(): string[] {
     "• «-» или кнопка «➖ Убрать себя» — убрать запись; если записей несколько, бот спросит кого",
     "• «-Рома» — убрать конкретного записанного вами игрока",
     `• За раз — до ${config.maxNamesPerMessage} имён, имя — до ${config.maxNameLength} символов`,
-    `• Первые ${config.maxPlayers} — основной состав, дальше резерв; когда кто-то уходит, резерв поднимается`,
+    `• Первые ${getMaxPlayers(chatId)} — основной состав, дальше резерв; когда кто-то уходит, резерв поднимается`,
     "",
     "Голосование за MVP (после игры):",
     "• Голосование открывается само через час после начала игры и закрывается, когда проголосуют все",
@@ -82,7 +82,7 @@ export function buildUserHelp(groupChatId: number, userId: number): string {
     "",
     ...personalStatus(groupChatId, userId),
     "",
-    ...userCommands(),
+    ...userCommands(groupChatId),
     ...(extra.length ? ["", ...extra] : []),
   ].join("\n");
 }
@@ -90,7 +90,7 @@ export function buildUserHelp(groupChatId: number, userId: number): string {
 export function buildAdminHelp(groupChatId: number, userId: number): string {
   const session = getSession(groupChatId);
   const vote = getVoteSession(groupChatId);
-  const main = session ? Math.min(session.players.length, config.maxPlayers) : 0;
+  const main = session ? Math.min(session.players.length, getMaxPlayers(groupChatId)) : 0;
   const autoClose = config.voteAutoCloseHours > 0 ? ` Без этого закроется само через ${config.voteAutoCloseHours} ч.` : "";
 
   return [
@@ -111,6 +111,7 @@ export function buildAdminHelp(groupChatId: number, userId: number): string {
     "• Запись идёт до начала игры: в момент игры бот закрывает её (кнопки снимаются, «+»/«-» больше не работают)",
     "• /описание Футбол в Среда 30.09.2026 года, с новой строки В 20:30 - 21:30 — шапка записи: день недели и дата подставятся сами, первое время — начало игры для напоминаний и оплаты",
     "• /описание — показать шапку; /описание сброс — стандартная шапка",
+    "• /лимит 15 — сколько человек в основе (дальше резерв); /лимит — показать, /лимит сброс — из .env",
     "• /оплата 350 Т-банк 89990000000 Имя — сумма с игрока и реквизиты этого чата; /оплата — показать, /оплата сброс — из .env",
     "• /игры Пн 12:00 Ср 21:20, Чт 12:00 Вс 20:20 — у каждой игры свой день публикации и своё время (вместо /расписание); /игры — показать, /игры сброс — обычное расписание",
     "• /расписание (кнопка «🗓 Расписание») — дни и время авто-публикации (ЧЧ:ММ:СС); там же «♻️ Сбросить расписание» — вернуть значение из .env",
@@ -134,7 +135,7 @@ export function buildAdminHelp(groupChatId: number, userId: number): string {
     "Важно: бот должен быть админом чата, чтобы удалять сообщения (MAX удаляет только сообщения младше 24 ч). Чужую запись участник удалить не может.",
     "",
     "— Команды участников (их видят все) —",
-    ...userCommands(),
+    ...userCommands(groupChatId),
     ...(reminders(groupChatId).length ? ["", ...reminders(groupChatId)] : []),
   ].join("\n");
 }

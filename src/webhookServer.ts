@@ -12,7 +12,7 @@ import { dmTarget } from "./dmTarget";
 import * as draft from "./draftLogic";
 import { DESCRIPTION_RE, handleDescriptionAndReply } from "./descriptionLogic";
 import { GAMES_RE, gamesCommand } from "./gameSlotsLogic";
-import { PAYMENT_RE, paymentCommand } from "./paymentLogic";
+import { LIMIT_RE, PAYMENT_RE, limitCommand, paymentCommand } from "./paymentLogic";
 import * as scheduleLogic from "./scheduleLogic";
 import * as voteLogic from "./voteLogic";
 import { MaxUpdate } from "./types";
@@ -120,6 +120,12 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
       await api.sendMessageToChat(chatId, { text: await gamesCommand(target, userId, gamesDm[2]) });
       return;
     }
+    // /лимит в личке — размер основы выбранного чата, ответ сюда же.
+    const limitDm = text.match(LIMIT_RE);
+    if (limitDm) {
+      await api.sendMessageToChat(chatId, { text: await limitCommand(target, userId, limitDm[2]) });
+      return;
+    }
     // /оплата в личке — реквизиты выбранного чата, ответ сюда же.
     const payDm = text.match(PAYMENT_RE);
     if (payDm) {
@@ -219,6 +225,13 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
     return;
   }
 
+  // 1.45b) /лимит — сколько человек в основе (только админ).
+  const limit = text.match(LIMIT_RE);
+  if (limit) {
+    await api.sendMessageToChat(chatId, { text: await limitCommand(chatId, userId, limit[2]) });
+    return;
+  }
+
   // 1.46) /оплата — сумма и реквизиты чата (только админ).
   const pay = text.match(PAYMENT_RE);
   if (pay) {
@@ -280,7 +293,7 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
 // Все команды бота — для подсказки, если команду написали с ошибкой.
 const KNOWN_COMMANDS = [
   "статус", "голос", "имя", "mvp", "мвп", "help", "инструкция", "помощь", "составы",
-  "старт", "закрыть", "описание", "расписание", "игры", "оплата", "голосование", "итоги", "объединить",
+  "старт", "закрыть", "описание", "расписание", "игры", "оплата", "лимит", "голосование", "итоги", "объединить",
   "удалить", "переименовать", "заменить", "поменять", "дележка", "всем", "мвпСезонныйСброс", "мвпОбщийСброс",
 ];
 

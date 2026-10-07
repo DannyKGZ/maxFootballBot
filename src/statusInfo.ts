@@ -1,3 +1,4 @@
+import { getMaxPlayers } from "./settingsStore";
 import { config } from "./config";
 import { db } from "./db";
 import * as api from "./maxApi";
@@ -34,11 +35,12 @@ function formatDuration(ms: number): string {
 function rosterLines(session: FootballSession): string[] {
   const main = session.players.filter((p) => !p.isReserve);
   const reserve = session.players.filter((p) => p.isReserve);
-  const free = Math.max(0, config.maxPlayers - main.length);
+  const max = getMaxPlayers(session.chatId);
+  const free = Math.max(0, max - main.length);
   const name = (p: FootballSession["players"][number]) => (p.lastName ? `${p.displayName} ${p.lastName}` : p.displayName);
   const lines = [
     "",
-    `Основа: ${main.length} из ${config.maxPlayers}${free ? `, свободно мест: ${free}` : " — мест нет, дальше резерв"}`,
+    `Основа: ${main.length} из ${max}${free ? `, свободно мест: ${free}` : " — мест нет, дальше резерв"}`,
     ...(main.length ? main.map((p, i) => `${i + 1}. ${name(p)}`) : ["— пока никого"]),
   ];
   if (reserve.length) {
