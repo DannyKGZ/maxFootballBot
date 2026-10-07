@@ -3,6 +3,7 @@ import { InlineKeyboardAttachment, KeyboardButton } from "./maxApi";
 import { ensurePlayerIds, isChatAdmin, playerKey } from "./sessionLogic";
 import { getSession, setSession } from "./store";
 import { ButtonAction, Draft, FootballSession, Player } from "./types";
+import { escapeHtml, paymentDetailsLine, paymentPayerLines } from "./messageFormatter";
 
 /**
  * Дележка на команды:
@@ -63,7 +64,7 @@ export function teamsText(s: FootballSession): string | null {
   return [d.stage === "done" ? "⚽ Составы:" : "⚽ Идёт дележка:", "", ...teamLines(s, d)].join("\n");
 }
 
-function render(s: FootballSession): { text: string; attachments: InlineKeyboardAttachment[] } {
+function render(s: FootballSession): { text: string; format?: "html"; attachments: InlineKeyboardAttachment[] } {
   const d = s.draft!;
   const cancel = [btn("✖️ Отменить дележку (админ)", { a: "dr_cancel" })];
   if (d.stage === "captains") {
@@ -90,7 +91,30 @@ function render(s: FootballSession): { text: string; attachments: InlineKeyboard
       attachments: [kb([...left.map((p) => [btn(p.displayName, { a: "dr_pick", k: playerKey(p) })]), cancel])],
     };
   }
-  return { text: ["⚽ Составы готовы!", "", ...teamLines(s, d)].join("\n"), attachments: [] };
+  // Составы готовы: ниже — напоминание об оплате с упоминанием игроков (кто записывал — тот и платит).
+  return {
+    text: [
+      "⚽ Составы готовы!",
+      "",
+      ...teamLines(s, d).map(escapeHtml),
+      "",
+      `💰 ${paymentDetailsLine(s.chatId)}`,
+      ...paymentPayerLines(s),
+    ].join("\n"),
+    format: "html",
+    attachments: [],
+  };
+}
+
+/** Опустить сообщение дележки вниз чата: новое внизу, старое удаляется (stickyLogic.ts). */
+export async function repostDraftMessage(chatId: number): Promise<void> {
+  const s = getSession(chatId);
+  if (!s?.draft) return;
+  const old = s.draft.messageId;
+  const res = await api.sendMessageToChat(chatId, render(s));
+  s.draft.messageId = res.message.body.mid;
+  setSession(s);
+  if (old) await api.deleteMessage(chatId, old).catch(() => api.editMessage(chatId, old, { text: "⚽ Дележка — актуальное сообщение ниже ⬇️", attachments: [] }).catch(() => undefined));
 }
 
 async function show(s: FootballSession): Promise<void> {

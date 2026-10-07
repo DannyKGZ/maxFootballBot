@@ -263,6 +263,12 @@ export async function finalizeVote(chatId: number, reason: boolean | "all_voted"
   if (vote.messageId) await api.deleteMessage(chatId, vote.messageId).catch(() => undefined);
 
   addMvpWins(chatId, getVoteWinners(vote));
+  // MVP этой игры выбран — её дележку больше не держим внизу (stickyLogic.ts).
+  const game = getSession(chatId);
+  if (game && game.date === vote.gameDate) {
+    game.mvpDone = true;
+    setSession(game);
+  }
   const note =
     reason === "all_voted"
       ? "\n\nВсе проголосовали — голосование закрыто автоматически."
@@ -271,7 +277,8 @@ export async function finalizeVote(chatId: number, reason: boolean | "all_voted"
         : "";
   const res = await api.sendMessageToChat(chatId, { text: buildMvpResultText(vote) + note });
 
-  const keep = [getSession(chatId)?.messageId, vote.rosterMessageId, res.message.body.mid];
+  // Составы (дележка с упоминаниями и оплатой) тоже остаются.
+  const keep = [getSession(chatId)?.messageId, getSession(chatId)?.draft?.messageId, vote.rosterMessageId, res.message.body.mid];
   for (const messageId of takeSentMessagesForCleanup(chatId, keep)) {
     try {
       await api.deleteMessage(chatId, messageId);

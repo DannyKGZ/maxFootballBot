@@ -11,7 +11,7 @@ module.exports = {
     t.ok(t.buttons(r).join("|") === "➕ Записаться|➖ Убрать себя|🏆 Рейтинг MVP|ℹ️ Инструкция", "под записью только кнопки участников", t.buttons(r));
 
     await t.say(2, "+");
-    t.ok(t.lines(t.roster()).join("|") === "1. Ruslan (Ruslan)", "голый «+» — имя из профиля и в скобках name", t.lines(t.roster()));
+    t.ok(t.lines(t.roster()).join("|") === "1. Ruslan", "голый «+» — имя из профиля, без скобок", t.lines(t.roster()));
     await t.click(3, t.roster(), "➕ Записаться");
     await t.say(3, "+Руслан");
     t.ok(t.lines(t.roster()).length === 3, "кнопка «Записаться» и «+Руслан» без подтверждения");

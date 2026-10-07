@@ -81,7 +81,7 @@ function startMock() {
       if (req.method === "PUT" && p === "/messages") {
         const m = messages.get(mid);
         if (!m) return send(res, { success: false }, 404);
-        Object.assign(m, { text: b.text, attachments: b.attachments || [] });
+        Object.assign(m, { text: b.text, format: b.format, attachments: b.attachments || [] });
         return send(res, { success: true });
       }
       if (req.method === "DELETE" && p === "/messages") {
@@ -195,6 +195,7 @@ class Harness {
       PAYMENT_HOURS_AFTER: "0",
       VOTE_AUTO_CLOSE_HOURS: "0",
       VOTE_AUTO_START_MINUTES: "0", // автозапуск голосования проверяется отдельным сценарием
+      STICKY_DELAY_MS: "0", // «держать внизу» проверяется отдельным сценарием
       ...(this.scenario.env || {}),
     };
     this.log = "";

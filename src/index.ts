@@ -1,3 +1,4 @@
+import { startSticky } from "./stickyLogic";
 import fs from "fs";
 import http from "http";
 import https from "https";
@@ -80,6 +81,7 @@ async function main(): Promise<void> {
     .catch((err) => console.warn("[bot] не удалось обновить меню команд:", err instanceof Error ? err.message : err));
 
   startScheduler();
+  startSticky();
   console.log(`[bot] чаты: ${config.chatIds.join(", ") || "не заданы (CHAT_IDS)"}`);
   for (const chatId of config.chatIds) {
     void refreshRosterOnStartup(chatId);

@@ -108,6 +108,14 @@ export interface SendMessageResult {
  * единая точка отправки, поэтому именно здесь удобнее всего собирать список
  * "мусорных" сообщений для очистки чата после голосования за MVP.
  */
+type SentListener = (chatId: number, messageId: string) => void;
+const sentListeners: SentListener[] = [];
+
+/** Подписка на каждое сообщение бота в чат (для «держать внизу», см. stickyLogic.ts). */
+export function onChatMessageSent(listener: SentListener): void {
+  sentListeners.push(listener);
+}
+
 export async function sendMessageToChat(
   chatId: number,
   body: NewMessageBody,
@@ -116,6 +124,7 @@ export async function sendMessageToChat(
     request<SendMessageResult>("POST", "/messages", { chat_id: chatId }, body),
   );
   trackSentMessage(chatId, res.message.body.mid);
+  for (const listener of sentListeners) listener(chatId, res.message.body.mid);
   return res;
 }
 

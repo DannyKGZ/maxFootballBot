@@ -12,7 +12,7 @@ module.exports = {
 
     await t.say(1, "/старт");
     await t.click(4, menu, "➕ Записаться", { dm: true });
-    t.ok(t.toast() === "✅ Вы записаны" && t.lines(t.roster()).join("|") === "1. Влад (Влад)", "«Записаться» из лички — запись в общем чате", t.lines(t.roster()));
+    t.ok(t.toast() === "✅ Вы записаны" && t.lines(t.roster()).join("|") === "1. Влад", "«Записаться» из лички — запись в общем чате", t.lines(t.roster()));
     await t.click(4, menu, "➕ Записаться", { dm: true });
     t.ok(t.toast() === "Вы уже записаны" && t.lines(t.roster()).length === 1, "повторно не записывает");
     t.ok(!t.find(/Хотите записать другого/, GROUP), "в общий чат лишних вопросов не уходит");

@@ -16,6 +16,7 @@ import { PAYMENT_RE, paymentCommand } from "./paymentLogic";
 import * as scheduleLogic from "./scheduleLogic";
 import * as voteLogic from "./voteLogic";
 import { MaxUpdate } from "./types";
+import { noteChatActivity } from "./stickyLogic";
 import { fullName } from "./messageFormatter";
 
 // /голос — показать голосование за MVP (для всех).
@@ -55,6 +56,9 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
   const chatId = message.recipient?.chat_id ?? (update as { chat_id?: number }).chat_id;
   const userId = message.sender?.user_id;
   const text = (message.body?.text || "").trim();
+
+  // Новое сообщение в группе (и фото/стикер без текста) — дележку/голосование опустим вниз (stickyLogic.ts).
+  if (chatId && message.recipient?.chat_type !== "dialog") noteChatActivity(chatId);
 
   if (!chatId || !userId || !text) {
     console.log(

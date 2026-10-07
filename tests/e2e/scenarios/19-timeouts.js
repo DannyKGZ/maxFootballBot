@@ -14,7 +14,7 @@ module.exports = {
     await t.idle(2500);
     const took = (Date.now() - started) / 1000;
     t.ok(t.log.includes("нет ответа за 1.5 с"), "зависший запрос оборван по таймауту", t.log.split("\n").filter((l) => l.includes("members")).slice(-2));
-    t.ok(t.lines(t.roster()).join("|") === "1. Ruslan (Ruslan)" && took < 10, `следующая команда обработана без многоминутной паузы (${took.toFixed(1)} с)`, t.lines(t.roster()));
+    t.ok(t.lines(t.roster()).join("|") === "1. Ruslan" && took < 10, `следующая команда обработана без многоминутной паузы (${took.toFixed(1)} с)`, t.lines(t.roster()));
 
     await t.say(1, "/Всем после сбоя");
     t.ok(!!t.find(/^📢 после сбоя/), "после сбоя /Всем снова работает");

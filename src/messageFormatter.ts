@@ -67,8 +67,7 @@ export function buildRosterText(session: FootballSession): string {
     const number = index + 1;
     const reserveTag = player.isReserve ? " (Резерв)" : "";
     const fullName = player.lastName ? `${player.displayName} ${player.lastName}` : player.displayName;
-    const profileTag = player.profileName ? ` (${player.profileName})` : "";
-    return `${number}. ${fullName}${profileTag}${reserveTag}`;
+    return `${number}. ${fullName}${reserveTag}`;
   });
 
   return `${header}\n\n${lines.join("\n")}`;
@@ -160,11 +159,22 @@ export function rankCandidates(vote: VoteSession): Array<VoteCandidate & { count
     .sort((a, b) => b.count - a.count);
 }
 
-/** Победители голосования (несколько — при ничьей); пусто, если голосов не было. */
+/** Больше скольких MVP в одном матче не бывает (ничья на первом месте). */
+export const MAX_MVP_WINNERS = 3;
+
+/**
+ * Победители голосования: все, у кого больше всех голосов (ничья), но не больше
+ * MAX_MVP_WINNERS — при ничьей у большего числа игроков MVP получают те, кто
+ * набрал это число голосов раньше. Пусто, если голосов не было.
+ */
 export function getVoteWinners(vote: VoteSession): string[] {
   if (vote.votes.length === 0) return [];
   const ranked = rankCandidates(vote);
-  return ranked.filter((c) => c.count === ranked[0].count).map((c) => c.displayName);
+  const top = ranked.filter((c) => c.count === ranked[0].count);
+  // Когда кандидат набрал свой итоговый счёт — по времени последнего голоса за него.
+  const reachedAt = (index: number) => Math.max(...vote.votes.filter((v) => v.candidateIndex === index).map((v) => v.createdAt));
+  const order = top.length > MAX_MVP_WINNERS ? [...top].sort((a, b) => reachedAt(a.index) - reachedAt(b.index)) : top;
+  return order.slice(0, MAX_MVP_WINNERS).map((c) => c.displayName);
 }
 
 /** Итоговое сообщение после завершения голосования — остаётся в чате при очистке. */
@@ -183,17 +193,20 @@ export function buildMvpResultText(vote: VoteSession): string {
   const winnerLine =
     winners.length === 1
       ? `Победитель: ${winners[0]} — ${topCount} ${votesWord(topCount)}`
-      : `Ничья: ${winners.join(", ")} — по ${topCount} ${votesWord(topCount)}`;
+      : `MVP матча (${winners.length}): ${winners.join(", ")} — по ${topCount} ${votesWord(topCount)}`;
 
   // В итогах — только те, за кого голосовали.
+  // Победители — первыми (при ничьей больше чем на троих не все из лидеров — MVP).
+  const isWinner = (c: VoteCandidate) => winners.includes(c.displayName);
   const resultLines = ranked
     .filter((c) => c.count > 0)
+    .sort((a, b) => b.count - a.count || Number(isWinner(b)) - Number(isWinner(a)))
     .map((c, i) => `${i + 1}. ${barLine(vote, c, c.count)} · ${votersOf(vote, c.index)}`);
 
   return [
     header,
     winnerLine,
-    "Победителю засчитан MVP в общий рейтинг (команда /mvp).",
+    winners.length === 1 ? "Победителю засчитан MVP в общий рейтинг (команда /mvp)." : "Каждому засчитан MVP в общий рейтинг (команда /mvp).",
     "",
     "Результаты:",
     ...resultLines,
@@ -260,14 +273,14 @@ export function mention(userId: number, name: string): string {
  * Напоминание об оплате (format: "html"). Платит основа: по каждому, кто
  * записывал, — сумма за всех его игроков и упоминание, чтобы пришло уведомление.
  */
-export function buildPaymentText(session: FootballSession, phase: "before" | "after", hours: number): string {
-  const date = new Date(session.date);
+/** Строки «@Ruslan — 700 ₽ (Ruslan, Петя)» по каждому, кто записывал игроков основы (html, с упоминаниями). */
+export function paymentPayerLines(session: FootballSession): string[] {
   const main = session.players.filter((p) => !p.isReserve);
   const payment = getPayment(session.chatId);
   const byUser = new Map<number, typeof main>();
   for (const p of main) byUser.set(p.userId, [...(byUser.get(p.userId) ?? []), p]);
 
-  const lines = [...byUser.entries()].map(([userId, players]) => {
+  return [...byUser.entries()].map(([userId, players]) => {
     const self = players.find((p) => p.profileName) ?? players[0];
     // Для упоминания нужно полное имя из профиля (см. mention): у записавшегося
     // себя это profileName, у записавшего друзей — addedByFullName.
@@ -278,6 +291,17 @@ export function buildPaymentText(session: FootballSession, phase: "before" | "af
       : "";
     return `${mention(userId, payer)} — ${sum} ₽${who}`;
   });
+}
+
+/** «За игру 350 ₽ с игрока на …» (html). */
+export function paymentDetailsLine(chatId: number): string {
+  const payment = getPayment(chatId);
+  return `За игру ${payment.amount} ₽ с игрока на ${escapeHtml(payment.details)}`;
+}
+
+export function buildPaymentText(session: FootballSession, phase: "before" | "after", hours: number): string {
+  const date = new Date(session.date);
+  const lines = paymentPayerLines(session);
 
   const when =
     phase === "before"
@@ -285,7 +309,7 @@ export function buildPaymentText(session: FootballSession, phase: "before" | "af
       : "игра прошла — не забудьте оплатить";
   return [
     `💰 Оплата за игру ${WEEKDAYS_RU[date.getDay()]} ${formatDateRu(date)}, ${gameTimeOf(session)} (${when})`,
-    `За игру ${payment.amount} ₽ с игрока на ${escapeHtml(payment.details)}`,
+    paymentDetailsLine(session.chatId),
     "",
     ...lines,
   ].join("\n");
