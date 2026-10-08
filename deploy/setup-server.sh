@@ -51,12 +51,15 @@ if [ ! -f "$APP_DIR/.env" ]; then
   NEED_ENV=1
 fi
 
-echo "==> Сервис systemd и ежедневный бэкап базы"
+echo "==> Сервис systemd, автодеплой и ежедневный бэкап базы"
 install -m 644 "$APP_DIR/deploy/max-football-bot.service" /etc/systemd/system/max-football-bot.service
 echo "30 4 * * * $APP_USER $APP_DIR/deploy/backup.sh >> $APP_DIR/data/backups/backup.log 2>&1" > /etc/cron.d/max-football-bot
 chmod +x "$APP_DIR/deploy/"*.sh
+install -m 644 "$APP_DIR/deploy/max-football-bot-update.service" /etc/systemd/system/max-football-bot-update.service
+install -m 644 "$APP_DIR/deploy/max-football-bot-update.timer" /etc/systemd/system/max-football-bot-update.timer
 systemctl daemon-reload
 systemctl enable max-football-bot
+systemctl enable --now max-football-bot-update.timer   # автодеплой: раз в 5 минут проверяет GitHub
 
 if [ "${NEED_ENV:-0}" = 1 ] || grep -q '^BOT_TOKEN=your_bot_token_here' "$APP_DIR/.env"; then
   echo

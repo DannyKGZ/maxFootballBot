@@ -140,16 +140,23 @@ Ctrl+C (бот продолжит работать).
 | Перезапуск (например, после правки `.env`) | `systemctl restart max-football-bot` |
 | Остановить / запустить | `systemctl stop max-football-bot` / `systemctl start max-football-bot` |
 
-## 6. Обновление бота
+## 6. Обновление бота (автодеплой)
 
-На ПК: внесите изменения и отправьте их на GitHub (`git push`). На сервере:
+Достаточно отправить изменения на GitHub (`git push` в `main`). Сервер **сам**
+раз в 5 минут проверяет репозиторий (таймер `max-football-bot-update.timer`)
+и, если есть новый коммит, обновляется: бэкап базы → `git pull` → сборка →
+перезапуск. База и `.env` не трогаются; ключи и пароли в GitHub не нужны.
 
-```bash
-bash /opt/max-football-bot/deploy/update.sh
-```
+Защита от поломки: если код не собирается или бот после перезапуска не
+поднялся, сервер откатывается на прежнюю версию и продолжает работать. Такой
+коммит повторно не пробуется — исправьте и запушьте новый.
 
-Скрипт делает бэкап базы, скачивает новую версию (`git pull`), собирает её и
-перезапускает бота. База и `.env` при обновлении не трогаются.
+| Что | Команда на сервере |
+|---|---|
+| Лог автодеплоя | `journalctl -u max-football-bot-update -n 50` |
+| Когда следующая проверка | `systemctl list-timers max-football-bot-update.timer` |
+| Обновить прямо сейчас | `bash /opt/max-football-bot/deploy/update.sh` |
+| Выключить / включить автодеплой | `systemctl disable --now max-football-bot-update.timer` / `systemctl enable --now max-football-bot-update.timer` |
 
 ## 7. Бэкапы и восстановление
 
