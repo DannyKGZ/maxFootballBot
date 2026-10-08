@@ -3,10 +3,11 @@ import * as scheduleLogic from "./scheduleLogic";
 import * as sessionLogic from "./sessionLogic";
 import * as voteLogic from "./voteLogic";
 import { showStatus } from "./statusInfo";
-import { buildAdminHelp, buildUserHelp } from "./helpInfo";
+import { buildAdminHelpParts, buildUserHelpParts } from "./helpInfo";
 import { isChatAdmin } from "./sessionLogic";
 import { MvpResetScope, mergeMvpNames, resetMvp } from "./settingsStore";
 import { mvpResetKeyboard } from "./keyboard";
+import { MAX_MESSAGE_CHARS } from "./messageParts";
 
 /** Сброс рейтинга MVP: /мвпСезонныйСброс — только сезон, /мвпОбщийСброс — весь рейтинг. */
 export const MVP_RESET_RE: Array<{ re: RegExp; scope: MvpResetScope }> = [
@@ -101,8 +102,6 @@ export async function mergeMvp(
   if (!res.ok) return deny(res.error);
   return deny(`Готово: «${res.from}» объединён с «${res.to}». Теперь у ${res.to} — ${res.count} MVP.`);
 }
-
-const MAX_MESSAGE_CHARS = 3800; // лимит MAX — 4000, оставляем запас
 
 /**
  * Упоминает всех участников группы `groupChatId` (кроме ботов) с текстом
@@ -218,12 +217,23 @@ export const HELP_RE = /^\/(help|инструкция|помощь)$/i;
  */
 export async function sendHelp(groupChatId: number, userId: number): Promise<ActionResult> {
   const isAdmin = await isChatAdmin(groupChatId, userId);
-  const text = isAdmin ? buildAdminHelp(groupChatId, userId) : buildUserHelp(groupChatId, userId);
+  // Инструкция админа длиннее лимита MAX (4000 символов), поэтому идёт
+  // несколькими сообщениями, разбитыми по целым разделам (см. messageParts.ts).
+  const parts = isAdmin ? buildAdminHelpParts(groupChatId, userId) : buildUserHelpParts(groupChatId, userId);
+  let sent = 0;
   try {
-    await api.sendMessageToUser(userId, { text });
+    for (const text of parts) {
+      await api.sendMessageToUser(userId, { text });
+      sent++;
+    }
     return { toast: "Инструкция отправлена вам в личный чат с ботом" };
   } catch (err) {
-    console.error("[actions] не удалось отправить инструкцию в личку:", err);
+    console.error(`[actions] инструкция в личку: отправлено ${sent} из ${parts.length} частей —`, err);
+    if (sent > 0) {
+      // Личка открыта (первая часть дошла) — подсказка про «Начать» была бы неверной.
+      const partial = `Инструкция пришла не полностью (${sent} из ${parts.length}) — попробуйте ещё раз.`;
+      return { toast: partial };
+    }
     const hint = "Чтобы получить инструкцию, откройте бота в личных сообщениях, нажмите «Начать» и повторите.";
     return { toast: hint, chat: hint };
   }

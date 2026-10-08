@@ -34,10 +34,10 @@ module.exports = {
     t.ok(!!t.find(/нет игрока «Никто»/, dmOf(1)), "команда объединения работает в личке");
 
     await t.click(2, t.roster(), "ℹ️ Инструкция");
-    const help = t.dmTo(2).pop();
-    t.ok(help && help.text.includes("вы записали 2: Ruslan, Валера") && !help.text.includes("Для администратора"), "участнику — личный статус, без админских разделов", help && help.text);
+    const help = t.helpDm(2);
+    t.ok(help.includes("вы записали 2: Ruslan, Валера") && !help.includes("Для администратора"), "участнику — личный статус, без админских разделов", help);
     await t.click(1, t.roster(), "ℹ️ Инструкция");
-    t.ok(t.dmTo(1).pop().text.startsWith("ℹ️ Инструкция администратора"), "админу — расширенная инструкция");
+    t.ok(t.helpDm(1).startsWith("ℹ️ Инструкция администратора"), "админу — расширенная инструкция");
     await t.click(9, t.roster(), "ℹ️ Инструкция");
     t.ok(/откройте бота/i.test(t.toast()), "не открывавшему бота — подсказка", t.toast());
     t.ok(!t.all(GROUP).some((m) => m.text.startsWith("ℹ️") || /Панель администратора/.test(m.text)), "в группе нет ни инструкций, ни панели");

@@ -31,7 +31,7 @@ module.exports = {
     await t.click(4, menu, "🏆 Рейтинг MVP", { dm: true });
     t.ok(!!t.find(/Рейтинг MVP/, dmOf(4)), "«Рейтинг MVP» — в личку");
     await t.click(4, menu, "ℹ️ Инструкция", { dm: true });
-    t.ok(t.dmTo(4).pop().text.startsWith("ℹ️ Как пользоваться"), "«Инструкция» — инструкция участника");
+    t.ok(t.helpDm(4).startsWith("ℹ️ Как пользоваться"), "«Инструкция» — инструкция участника");
     t.ok(!t.all(GROUP).some((m) => /^(📋|🏆 Рейтинг|ℹ️|👋)/.test(m.text)), "ответы из лички не попадают в общий чат");
 
     await t.click(4, menu, "➖ Убрать себя", { dm: true });
