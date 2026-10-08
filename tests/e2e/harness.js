@@ -58,6 +58,11 @@ function startMock() {
     res.writeHead(code, { "content-type": "application/json" });
     res.end(JSON.stringify(obj));
   };
+  // MAX не принимает текст длиннее 4000 символов — мок обязан вести себя так же,
+  // иначе слишком длинные сообщения (например инструкция админа) ломаются только в бою.
+  const MAX_TEXT_CHARS = 4000;
+  const tooLong = (text) => typeof text === "string" && text.length > MAX_TEXT_CHARS;
+
   const server = http.createServer((req, res) => {
     let body = "";
     req.on("data", (d) => (body += d));
@@ -74,6 +79,7 @@ function startMock() {
       if (req.method === "POST" && p === "/messages") {
         const userId = Number(u.searchParams.get("user_id")) || 0;
         if (DENIED_DM.includes(userId)) return send(res, { code: "chat.denied" }, 403);
+        if (tooLong(b.text)) return send(res, { code: "text.length", message: `text is too long: ${b.text.length}` }, 400);
         const id = "mid." + ++seq;
         messages.set(id, { mid: id, chat: Number(u.searchParams.get("chat_id")) || 0, user: userId, text: b.text, format: b.format, attachments: b.attachments || [] });
         return send(res, { message: { body: { mid: id, seq } } });
@@ -81,6 +87,7 @@ function startMock() {
       if (req.method === "PUT" && p === "/messages") {
         const m = messages.get(mid);
         if (!m) return send(res, { success: false }, 404);
+        if (tooLong(b.text)) return send(res, { code: "text.length", message: `text is too long: ${b.text.length}` }, 400);
         Object.assign(m, { text: b.text, format: b.format, attachments: b.attachments || [] });
         return send(res, { success: true });
       }
@@ -314,6 +321,12 @@ class Harness {
   }
   dmTo(uid) {
     return [...this.mock.messages.values()].filter((m) => m.chat === dmOf(uid) || m.user === uid);
+  }
+  /** Инструкция приходит несколькими частями — склеиваем последнюю серию в один текст. */
+  helpDm(uid) {
+    const texts = this.dmTo(uid).map((m) => m.text);
+    const start = texts.map((t) => t.startsWith("\u2139\ufe0f")).lastIndexOf(true);
+    return start === -1 ? "" : texts.slice(start).join("\n\n");
   }
   roster() {
     return this.find(/^Футбол в/);

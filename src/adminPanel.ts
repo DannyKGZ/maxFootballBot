@@ -1,7 +1,7 @@
 import { config } from "./config";
 import * as api from "./maxApi";
 import { adminConfirmKeyboard, adminKeyboard, userMenuKeyboard } from "./keyboard";
-import { buildAdminHelp, buildUserWelcome } from "./helpInfo";
+import { buildAdminHelpParts, buildUserWelcome } from "./helpInfo";
 import * as actions from "./actions";
 import { chatSwitchRow, chatTitle, dmTarget } from "./dmTarget";
 import { openEditor } from "./rosterEdit";
@@ -125,7 +125,10 @@ export async function handlePanelAction(
     }
 
     case "help":
-      await api.sendMessageToChat(dmChatId, { text: buildAdminHelp(group, userId) });
+      // Разделами: целиком инструкция админа не влезает в лимит MAX (4000 символов).
+      for (const text of buildAdminHelpParts(group, userId)) {
+        await api.sendMessageToChat(dmChatId, { text });
+      }
       return "Инструкция ниже";
 
     case "adm_mvp_reset":
