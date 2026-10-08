@@ -65,6 +65,44 @@ export function setGameSlots(chatId: number, slots: GameSlot[] | null): void {
   else db().prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(`game_slots:${chatId}`, JSON.stringify(slots));
 }
 
+// ---- Роли: легенда и манишкаНосец (/легенда, /манишкаНосец) ----
+
+export type RoleKind = "legend" | "maniska";
+
+/** Кто носит роль: данные профиля — чтобы записывать его в каждую новую запись «как через +». */
+export interface RoleHolder {
+  userId: number;
+  displayName: string;
+  lastName?: string;
+  profileName: string; // полное имя из профиля MAX (для упоминаний)
+  since: number; // когда назначен
+}
+
+const LEGEND_TERM_MS = (since: number) => {
+  const until = new Date(since);
+  until.setFullYear(until.getFullYear() + 1); // легенда — ровно на год
+  return until.getTime();
+};
+
+/** До какого момента действует легенда. */
+export function legendUntil(holder: RoleHolder): Date {
+  return new Date(LEGEND_TERM_MS(holder.since));
+}
+
+/** Текущий носитель роли; у легенды — только пока не прошёл год. */
+export function getRole(chatId: number, kind: RoleKind, now = Date.now()): RoleHolder | null {
+  const row = db().prepare("SELECT value FROM meta WHERE key = ?").get(`role_${kind}:${chatId}`) as { value: string } | undefined;
+  if (!row) return null;
+  const holder = JSON.parse(row.value) as RoleHolder;
+  if (kind === "legend" && now >= LEGEND_TERM_MS(holder.since)) return null;
+  return holder;
+}
+
+export function setRole(chatId: number, kind: RoleKind, holder: RoleHolder | null): void {
+  if (!holder) db().prepare("DELETE FROM meta WHERE key = ?").run(`role_${kind}:${chatId}`);
+  else db().prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(`role_${kind}:${chatId}`, JSON.stringify(holder));
+}
+
 // ---- Размер основы (/лимит) ----
 
 /** Сколько человек в основе у чата: из /лимит, иначе MAX_PLAYERS из .env. Дальше — резерв. */

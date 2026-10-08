@@ -1,4 +1,4 @@
-import { getMaxPlayers } from "./settingsStore";
+import { RoleHolder, RoleKind, getMaxPlayers, getRole } from "./settingsStore";
 import { config } from "./config";
 import { computeNextGameDate, isSignupOpen } from "./gameDays";
 import { getNickname, setNickname } from "./settingsStore";
@@ -25,9 +25,76 @@ import { FootballSession, MaxUser, Player } from "./types";
 
 /** Пересчитывает isReserve строго по позиции в списке (правило: первые /лимит или MAX_PLAYERS — основа). */
 function recomputeReserveFlags(session: FootballSession): void {
+  orderRolePlayers(session);
   session.players.forEach((player, index) => {
     player.isReserve = index >= getMaxPlayers(session.chatId);
   });
+}
+
+// ---- Легенда и манишкаНосец: всегда первыми в списке ----
+
+/** Своя запись носителя роли (через «+» или автоматическая), не друзья, которых он записал. */
+function isRoleEntry(p: Player, holder: RoleHolder | null): boolean {
+  return Boolean(holder && p.userId === holder.userId && (p.profileName || p.auto));
+}
+
+/** Легенда — всегда 1-я, манишкаНосец — сразу после неё (остальные — в прежнем порядке). */
+function orderRolePlayers(session: FootballSession): void {
+  const legend = getRole(session.chatId, "legend");
+  const maniska = getRole(session.chatId, "maniska");
+  const rank = (p: Player) => (isRoleEntry(p, legend) ? 0 : isRoleEntry(p, maniska) ? 1 : 2);
+  const first = new Set<number>(); // только первая своя запись носителя поднимается наверх
+  const ranked = session.players.map((p, i) => {
+    let r = rank(p);
+    if (r < 2) {
+      if (first.has(r)) r = 2;
+      else first.add(r);
+    }
+    return { p, i, r };
+  });
+  ranked.sort((x, y) => x.r - y.r || x.i - y.i);
+  session.players = ranked.map((x) => x.p);
+}
+
+function roleEntry(holder: RoleHolder, kind: RoleKind): Player {
+  return {
+    id: newPlayerId(),
+    userId: holder.userId,
+    displayName: holder.displayName,
+    lastName: holder.lastName,
+    profileName: holder.profileName,
+    addedByName: holder.displayName,
+    addedByFullName: holder.profileName,
+    isReserve: false,
+    joinedAt: Date.now(),
+    auto: kind,
+  };
+}
+
+/** Новая запись: легенда и манишкаНосец записаны сразу (удалиться может сам игрок или админ). */
+function seedRolePlayers(session: FootballSession): void {
+  const legend = getRole(session.chatId, "legend");
+  const maniska = getRole(session.chatId, "maniska");
+  if (legend) session.players.push(roleEntry(legend, "legend"));
+  if (maniska && maniska.userId !== legend?.userId) session.players.push(roleEntry(maniska, "maniska"));
+  recomputeReserveFlags(session);
+}
+
+/**
+ * Роль сменилась — поправить открытую запись: прежнего носителя, записанного
+ * только из-за роли, убрать, нового — записать (если его ещё нет). Запись на уже
+ * начавшуюся игру не трогаем.
+ */
+export async function applyRoleChange(chatId: number, kind: RoleKind, previous: RoleHolder | null): Promise<void> {
+  const session = getSession(chatId);
+  if (!session || !isSignupOpen(session)) return;
+  const holder = getRole(chatId, kind);
+  if (previous && previous.userId !== holder?.userId) {
+    session.players = session.players.filter((p) => !(p.auto === kind && p.userId === previous.userId));
+  }
+  if (holder && !session.players.some((p) => isRoleEntry(p, holder))) session.players.push(roleEntry(holder, kind));
+  recomputeReserveFlags(session);
+  await repostRoster(session);
 }
 
 /** Дата игры — от расписания (см. gameDays.ts): на следующий день после публикации. */
@@ -172,6 +239,7 @@ export async function publishNewSession(chatId: number): Promise<FootballSession
     date: computeNextGameDate(chatId).toISOString(),
     createdAt: Date.now(),
   };
+  seedRolePlayers(session);
   await pushRosterUpdate(session);
   return session;
 }

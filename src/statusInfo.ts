@@ -1,4 +1,4 @@
-import { getMaxPlayers } from "./settingsStore";
+import { getMaxPlayers, getRole, legendUntil } from "./settingsStore";
 import { config } from "./config";
 import { db } from "./db";
 import * as api from "./maxApi";
@@ -78,6 +78,11 @@ export function buildStatusText(chatId: number, now = Date.now()): string {
   }
 
   const next = nextPublicationDate(chatId, new Date(now));
+  const legend = getRole(chatId, "legend", now);
+  const maniska = getRole(chatId, "maniska", now);
+  if (legend || maniska) lines.push("");
+  if (legend) lines.push(`🏆 Легенда: ${legend.displayName} (до ${pad(legendUntil(legend).getDate())}.${pad(legendUntil(legend).getMonth() + 1)}.${legendUntil(legend).getFullYear()}) — всегда 1-й в записи.`);
+  if (maniska) lines.push(`👕 Манишки у: ${maniska.displayName} — всегда 2-й в записи.`);
   lines.push(
     "",
     vote ? `🗳 Идёт голосование за MVP — отдано голосов: ${vote.votes.length}.` : "🗳 Голосование за MVP сейчас не идёт.",

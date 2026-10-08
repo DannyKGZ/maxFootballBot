@@ -23,6 +23,7 @@ import {
   takeSentMessagesForCleanup,
 } from "./store";
 import { FootballSession, VoteCandidate, VoteSession } from "./types";
+import { maniskaPromptMessageId, postManiskaPrompt } from "./rolesLogic";
 
 /**
  * Голосование за MVP матча. Правила (по ТЗ):
@@ -111,6 +112,9 @@ async function openVote(chatId: number): Promise<StartVoteOutcome> {
     rosterMessageId: session.messageId,
     createdAt: Date.now(),
   };
+
+  // Кнопка «👕 Я забрал манишки» — перед голосованием, чтобы голосование было последним.
+  await postManiskaPrompt(session).catch((err) => console.warn("[voteLogic] не удалось отправить кнопку манишек:", err instanceof Error ? err.message : err));
 
   const res = await api.sendMessageToChat(chatId, {
     text: buildVoteText(vote),
@@ -278,7 +282,13 @@ export async function finalizeVote(chatId: number, reason: boolean | "all_voted"
   const res = await api.sendMessageToChat(chatId, { text: buildMvpResultText(vote) + note });
 
   // Составы (дележка с упоминаниями и оплатой) тоже остаются.
-  const keep = [getSession(chatId)?.messageId, getSession(chatId)?.draft?.messageId, vote.rosterMessageId, res.message.body.mid];
+  const keep = [
+    getSession(chatId)?.messageId,
+    getSession(chatId)?.draft?.messageId,
+    vote.rosterMessageId,
+    res.message.body.mid,
+    maniskaPromptMessageId(chatId), // кнопка «Я забрал манишки» нужна и после итогов
+  ];
   for (const messageId of takeSentMessagesForCleanup(chatId, keep)) {
     try {
       await api.deleteMessage(chatId, messageId);

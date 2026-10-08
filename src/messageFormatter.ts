@@ -1,6 +1,6 @@
 import { config } from "./config";
-import { MvpEntry, getMaxPlayers, getPayment, getRosterTemplate } from "./settingsStore";
-import { FootballSession, VoteCandidate, VoteSession } from "./types";
+import { MvpEntry, getMaxPlayers, getPayment, getRole, getRosterTemplate } from "./settingsStore";
+import { FootballSession, Player, VoteCandidate, VoteSession } from "./types";
 
 const WEEKDAYS_RU = [
   "Воскресенье",
@@ -56,6 +56,14 @@ export function rosterTitle(session: FootballSession): string {
   return renderRosterTemplate(getRosterTemplate(session.chatId) ?? DEFAULT_ROSTER_TEMPLATE, session);
 }
 
+/** «— Легенда 🏆🏅⚽» / «— 👕 манишкаНосец» у своей записи носителя роли. */
+export function roleTag(session: FootballSession, player: Player): string {
+  if (!player.profileName && !player.auto) return ""; // друзей, записанных легендой, не помечаем
+  if (getRole(session.chatId, "legend")?.userId === player.userId) return " — Легенда 🏆🏅⚽";
+  if (getRole(session.chatId, "maniska")?.userId === player.userId) return " — 👕 манишкаНосец";
+  return "";
+}
+
 export function buildRosterText(session: FootballSession): string {
   const header = rosterTitle(session);
 
@@ -67,7 +75,7 @@ export function buildRosterText(session: FootballSession): string {
     const number = index + 1;
     const reserveTag = player.isReserve ? " (Резерв)" : "";
     const fullName = player.lastName ? `${player.displayName} ${player.lastName}` : player.displayName;
-    return `${number}. ${fullName}${reserveTag}`;
+    return `${number}. ${fullName}${roleTag(session, player)}${reserveTag}`;
   });
 
   return `${header}\n\n${lines.join("\n")}`;

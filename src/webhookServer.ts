@@ -17,6 +17,7 @@ import * as scheduleLogic from "./scheduleLogic";
 import * as voteLogic from "./voteLogic";
 import { MaxUpdate } from "./types";
 import { noteChatActivity } from "./stickyLogic";
+import * as roles from "./rolesLogic";
 import { fullName } from "./messageFormatter";
 
 // /голос — показать голосование за MVP (для всех).
@@ -118,6 +119,14 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
     const gamesDm = text.match(GAMES_RE);
     if (gamesDm) {
       await api.sendMessageToChat(chatId, { text: await gamesCommand(target, userId, gamesDm[2]) });
+      return;
+    }
+    // /легенда, /манишкаНосец в личке — выбор игрока присылается сюда.
+    for (const [re, kind] of [[roles.LEGEND_RE, "legend"], [roles.MANISKA_RE, "maniska"]] as const) {
+      const m = text.match(re);
+      if (!m) continue;
+      const reply = await roles.roleCommand(target, chatId, userId, kind, m[2]);
+      if (reply) await api.sendMessageToChat(chatId, { text: reply });
       return;
     }
     // /лимит в личке — размер основы выбранного чата, ответ сюда же.
@@ -225,6 +234,15 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
     return;
   }
 
+  // 1.45a) /легенда, /манишкаНосец — выбор игрока кнопками (только админ).
+  for (const [re, kind] of [[roles.LEGEND_RE, "legend"], [roles.MANISKA_RE, "maniska"]] as const) {
+    const m = text.match(re);
+    if (!m) continue;
+    const reply = await roles.roleCommand(chatId, chatId, userId, kind, m[2]);
+    if (reply) await api.sendMessageToChat(chatId, { text: reply });
+    return;
+  }
+
   // 1.45b) /лимит — сколько человек в основе (только админ).
   const limit = text.match(LIMIT_RE);
   if (limit) {
@@ -293,7 +311,7 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
 // Все команды бота — для подсказки, если команду написали с ошибкой.
 const KNOWN_COMMANDS = [
   "статус", "голос", "имя", "mvp", "мвп", "help", "инструкция", "помощь", "составы",
-  "старт", "закрыть", "описание", "расписание", "игры", "оплата", "лимит", "голосование", "итоги", "объединить",
+  "старт", "закрыть", "описание", "расписание", "игры", "оплата", "лимит", "легенда", "манишканосец", "манишки", "голосование", "итоги", "объединить",
   "удалить", "переименовать", "заменить", "поменять", "дележка", "всем", "мвпСезонныйСброс", "мвпОбщийСброс",
 ];
 
@@ -337,6 +355,14 @@ async function handleMessageCallback(update: MaxUpdate): Promise<void> {
 
   if (!action) {
     await api.answerCallback(chatId, callback.callback_id, { notification: "Готово" });
+    return;
+  }
+
+  // Легенда и манишкаНосец: выбор игрока (админ) и «👕 Я забрал манишки» — в чате и в личке.
+  if (roles.isRoleAction(action)) {
+    const group = message?.recipient?.chat_type === "dialog" ? await dmTarget(pressedByUserId) : chatId;
+    const notification = await roles.handleRoleAction(group, chatId, message?.body?.mid, callback.user, action);
+    await api.answerCallback(chatId, callback.callback_id, { notification });
     return;
   }
 

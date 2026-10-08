@@ -11,6 +11,7 @@ export interface Player {
   // Полное имя из профиля того, кто записал: MAX делает упоминание, только если текст
   // ссылки совпадает с именем в профиле целиком («Никита Халиманов», а не «Никита»).
   addedByFullName?: string;
+  auto?: "legend" | "maniska"; // записан ботом автоматически как легенда / манишкаНосец
 }
 
 export interface FootballSession {
@@ -175,6 +176,14 @@ export type ButtonAction =
   | { a: "nick" } // «✏️ Изменить имя» в личке — бот ждёт новое имя сообщением
   | { a: "dm_chat" } // «🔁 Чат: …» — выбрать, каким чатом управлять из лички
   | { a: "dm_chat_set"; c: number }
+  // Роли чата: легенда и манишкаНосец (p — userId игрока)
+  | { a: "adm_legend" }
+  | { a: "adm_maniska" }
+  | { a: "role_pick"; r: "legend" | "maniska"; p: number }
+  | { a: "role_off"; r: "legend" | "maniska" }
+  | { a: "role_cancel" }
+  | { a: "mnk_take" } // «👕 Я забрал манишки» после игры
+  | { a: "mnk_undo" } // «↩️ Я ошибся»
   // Редактор списка в личке админа (k — ключ игрока userId:joinedAt)
   | { a: "adm_edit" }
   // Дележка на команды (k — ключ игрока)

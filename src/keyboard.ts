@@ -121,6 +121,7 @@ export function adminKeyboard(extraRows: KeyboardButton[][] = []): InlineKeyboar
         [callbackButton("✏️ Список игроков", { a: "adm_edit" }), callbackButton("⚽ Дележка", { a: "adm_draft" })],
         [callbackButton("🗳 Начать голосование", { a: "adm_vote" }), callbackButton("🏁 Итоги голосования", { a: "adm_finish" })],
         [callbackButton("🗓 Расписание", { a: "adm_schedule" }), callbackButton("🔗 Объединить в рейтинге", { a: "adm_merge" })],
+        [callbackButton("🏆 Легенда", { a: "adm_legend" }), callbackButton("👕 МанишкаНосец", { a: "adm_maniska" })],
         [
           callbackButton("🧹 Сброс сезона MVP", { a: "adm_mvp_reset", s: "season" }),
           callbackButton("🗑 Сброс всего MVP", { a: "adm_mvp_reset", s: "all" }),
