@@ -59,7 +59,7 @@ install -m 644 "$APP_DIR/deploy/max-football-bot-update.service" /etc/systemd/sy
 install -m 644 "$APP_DIR/deploy/max-football-bot-update.timer" /etc/systemd/system/max-football-bot-update.timer
 systemctl daemon-reload
 systemctl enable max-football-bot
-systemctl enable --now max-football-bot-update.timer   # автодеплой: раз в 5 минут проверяет GitHub
+systemctl enable --now max-football-bot-update.timer   # автодеплой: раз в час проверяет GitHub
 
 if [ "${NEED_ENV:-0}" = 1 ] || grep -q '^BOT_TOKEN=your_bot_token_here' "$APP_DIR/.env"; then
   echo

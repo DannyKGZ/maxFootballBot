@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Автодеплой: раз в 5 минут (таймер max-football-bot-update.timer) проверяет GitHub;
+# Автодеплой: раз в час (таймер max-football-bot-update.timer) проверяет GitHub;
 # если в main новый коммит — запускает deploy/update.sh. Коммит, который не удалось
 # собрать или запустить, запоминается и повторно не пробуется, пока не появится новый.
 # Лог: journalctl -u max-football-bot-update

@@ -1,10 +1,10 @@
-# Раз в 5 минут — проверить GitHub (deploy/auto-update.sh). Выключить: systemctl disable --now max-football-bot-update.timer
+# Раз в час — проверить GitHub (deploy/auto-update.sh). Выключить: systemctl disable --now max-football-bot-update.timer
 [Unit]
-Description=MAX football bot — проверка обновлений каждые 5 минут
+Description=MAX football bot — проверка обновлений раз в час
 
 [Timer]
 OnBootSec=2min
-OnUnitActiveSec=5min
+OnUnitActiveSec=1h
 
 [Install]
 WantedBy=timers.target
