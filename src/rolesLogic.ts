@@ -2,9 +2,10 @@ import * as api from "./maxApi";
 import { InlineKeyboardAttachment, KeyboardButton } from "./maxApi";
 import { db } from "./db";
 import { applyRoleChange, isChatAdmin } from "./sessionLogic";
-import { RoleHolder, RoleKind, getRole, isRoleHolderEntry, legendUntil, setRole } from "./settingsStore";
+import { RoleHolder, RoleKind, getNickname, getRole, isRoleHolderEntry, legendUntil, setRole } from "./settingsStore";
 import { getArchivedSession, getSession } from "./store";
-import { ButtonAction, FootballSession, Player } from "./types";
+import { ButtonAction, FootballSession, MaxChatMember, Player } from "./types";
+import { fullName } from "./messageFormatter";
 
 /**
  * Роли чата — их носителя бот сам записывает в каждую новую запись:
@@ -33,19 +34,89 @@ function holderText(chatId: number, kind: RoleKind): string {
   return kind === "legend" ? `${h.displayName} (до ${fmtDate(legendUntil(h))})` : h.displayName;
 }
 
-/** Кого можно назначить: все из текущей и прошлой записи (и записавшиеся сами, и записанные друзьями). */
+/**
+ * Кого можно назначить манишкаНосцем: записавшиеся на игру (и сами, и друзьями) —
+ * в текущей записи, а если её нет — в прошлой.
+ */
 function candidates(chatId: number): Player[] {
+  const session = getSession(chatId) ?? getArchivedSession(chatId);
   const seen = new Set<string>();
   const out: Player[] = [];
-  for (const s of [getSession(chatId), getArchivedSession(chatId)]) {
-    for (const p of s?.players ?? []) {
-      const key = p.profileName ? `${p.userId}` : `${p.userId}:${p.displayName.trim().toLowerCase()}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(p);
-    }
+  for (const p of session?.players ?? []) {
+    const key = p.profileName ? `${p.userId}` : `${p.userId}:${p.displayName.trim().toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(p);
   }
   return out;
+}
+
+/** Легенда — любой участник чата (без ботов и удалённых), по алфавиту. */
+async function memberCandidates(chatId: number): Promise<MaxChatMember[]> {
+  const members = await api.listChatMembers(chatId);
+  return members.sort((a, b) => fullName(a).localeCompare(fullName(b), "ru"));
+}
+
+const holderFromMember = (m: MaxChatMember): RoleHolder => ({
+  userId: m.user_id,
+  self: true,
+  displayName: getNickname(m.user_id) ?? ((m.first_name ?? "").trim() || fullName(m)),
+  lastName: m.last_name?.trim() || undefined,
+  profileName: fullName(m),
+  since: Date.now(),
+});
+
+const MEMBERS_PER_PAGE = 30; // 10 рядов по 3 кнопки
+const short = (s: string) => (s.length > 22 ? `${s.slice(0, 21)}…` : s);
+
+/** Сообщение выбора игрока для роли; строка — ошибка. */
+async function choiceView(groupChatId: number, kind: RoleKind, page = 0): Promise<{ text: string; attachments: InlineKeyboardAttachment[] } | string> {
+  const current = getRole(groupChatId, kind);
+  const cmd = kind === "legend" ? "легенда" : "манишкаНосец";
+  let rows: KeyboardButton[][];
+  let where: string;
+  if (kind === "legend") {
+    const members = await memberCandidates(groupChatId);
+    if (!members.length) return "Не удалось получить список участников чата.";
+    const pages = Math.ceil(members.length / MEMBERS_PER_PAGE);
+    const pg = Math.min(Math.max(0, page), pages - 1);
+    const slice = members.slice(pg * MEMBERS_PER_PAGE, (pg + 1) * MEMBERS_PER_PAGE);
+    const buttons = slice.map((m) =>
+      btn(`${current?.self !== false && current?.userId === m.user_id ? "✅ " : ""}${short(fullName(m))}`, { a: "role_pick", r: kind, p: m.user_id, m: 1 }),
+    );
+    rows = [];
+    for (let i = 0; i < buttons.length; i += 3) rows.push(buttons.slice(i, i + 3));
+    if (pages > 1) {
+      const nav: KeyboardButton[] = [];
+      if (pg > 0) nav.push(btn("◀️ Назад", { a: "role_page", r: kind, pg: pg - 1 }));
+      nav.push(btn(`${pg + 1} / ${pages}`, { a: "role_page", r: kind, pg }));
+      if (pg < pages - 1) nav.push(btn("Дальше ▶️", { a: "role_page", r: kind, pg: pg + 1 }));
+      rows.push(nav);
+    }
+    where = `участники чата (${members.length})`;
+  } else {
+    const list = candidates(groupChatId);
+    if (!list.length) return `Выбрать не из кого — в записи пока никого. Можно указать имя: /${cmd} Володя. Сейчас ${TITLE[kind]} — ${holderText(groupChatId, kind)}.`;
+    rows = list.map((p) => [
+      btn(`${isRoleHolderEntry(p, current) ? "✅ " : ""}${p.displayName}${p.profileName ? "" : ` (записывает ${p.addedByName ?? "друг"})`}`, {
+        a: "role_pick",
+        r: kind,
+        p: p.userId,
+        ...(p.profileName ? {} : { n: p.displayName }),
+      }),
+    ]);
+    where = "записавшиеся на игру";
+  }
+  if (current) rows.push([btn("✖️ Снять роль", { a: "role_off", r: kind })]);
+  rows.push([btn("Отмена", { a: "role_cancel" })]);
+  const about =
+    kind === "legend"
+      ? "Легенда всегда записан 1-м в каждой записи — ровно год с назначения."
+      : "МанишкаНосец всегда записан 2-м (после легенды) в каждой записи.";
+  return {
+    text: `${TITLE[kind]} — сейчас: ${holderText(groupChatId, kind)}.\n${about}\nВыберите игрока — ${where} (только админ). Нет в списке — напишите имя: /${cmd} Володя`,
+    attachments: [kb(rows)],
+  };
 }
 
 const holderFrom = (p: Player): RoleHolder =>
@@ -91,34 +162,24 @@ export async function roleCommand(
   if (text) {
     // «/манишкаНосец Володя»: игрок из списков — его; иначе записываем от имени админа (как «+Володя»).
     if (text.length > 40 || !/\p{L}/u.test(text)) return "Имя — до 40 символов и хотя бы одна буква.";
-    const found = candidates(groupChatId).find((p) => p.displayName.trim().toLowerCase() === text.toLowerCase());
-    const holder: RoleHolder = found
-      ? holderFrom(found)
-      : { userId, self: false, displayName: text, profileName: sender.name || sender.first_name, addedByName: sender.first_name.trim(), since: Date.now() };
+    const lower = text.toLowerCase();
+    const member =
+      kind === "legend"
+        ? (await memberCandidates(groupChatId).catch(() => [])).filter((m) => fullName(m).toLowerCase() === lower || (m.first_name ?? "").trim().toLowerCase() === lower)
+        : [];
+    const found = candidates(groupChatId).find((p) => p.displayName.trim().toLowerCase() === lower);
+    const holder: RoleHolder =
+      member.length === 1
+        ? holderFromMember(member[0])
+        : found
+          ? holderFrom(found)
+          : { userId, self: false, displayName: text, profileName: sender.name || sender.first_name, addedByName: sender.first_name.trim(), since: Date.now() };
     await assign(groupChatId, kind, holder);
-    return `✅ ${TITLE[kind]}: ${holderText(groupChatId, kind)}.${found ? "" : ` Записывать его будет ${sender.first_name.trim()} (как «+${text}»).`}`;
+    return `✅ ${TITLE[kind]}: ${holderText(groupChatId, kind)}.${holder.self !== false || found ? "" : ` Записывать его будет ${sender.first_name.trim()} (как «+${text}»).`}`;
   }
-  const list = candidates(groupChatId);
-  if (!list.length) return `Выбрать не из кого — в записях пока никого. Можно указать имя: /${kind === "legend" ? "легенда" : "манишкаНосец"} Витя. Сейчас ${TITLE[kind]} — ${holderText(groupChatId, kind)}.`;
-  const current = getRole(groupChatId, kind);
-  const rows = list.map((p) => [
-    btn(`${isRoleHolderEntry(p, current) ? "✅ " : ""}${p.displayName}${p.profileName ? "" : ` (записывает ${p.addedByName ?? "друг"})`}`, {
-      a: "role_pick",
-      r: kind,
-      p: p.userId,
-      ...(p.profileName ? {} : { n: p.displayName }),
-    }),
-  ]);
-  if (getRole(groupChatId, kind)) rows.push([btn("✖️ Снять роль", { a: "role_off", r: kind })]);
-  rows.push([btn("Отмена", { a: "role_cancel" })]);
-  const about =
-    kind === "legend"
-      ? "Легенда всегда записан 1-м в каждой записи — ровно год с назначения."
-      : "МанишкаНосец всегда записан 2-м (после легенды) в каждой записи.";
-  await api.sendMessageToChat(replyChatId, {
-    text: `${TITLE[kind]} — сейчас: ${holderText(groupChatId, kind)}.\n${about}\nВыберите игрока (только админ). Нет в списке — напишите имя: /${kind === "legend" ? "легенда" : "манишкаНосец"} Володя`,
-    attachments: [kb(rows)],
-  });
+  const view = await choiceView(groupChatId, kind);
+  if (typeof view === "string") return view;
+  await api.sendMessageToChat(replyChatId, view);
   return "";
 }
 
@@ -183,7 +244,7 @@ function playerOf(chatId: number, userId: number): Player | undefined {
 }
 
 export function isRoleAction(action: ButtonAction): boolean {
-  return ["adm_legend", "adm_maniska", "role_pick", "role_off", "role_cancel", "mnk_take", "mnk_undo"].includes(action.a);
+  return ["adm_legend", "adm_maniska", "role_pick", "role_page", "role_off", "role_cancel", "mnk_take", "mnk_undo"].includes(action.a);
 }
 
 /**
@@ -205,6 +266,13 @@ export async function handleRoleAction(
       const reply = await roleCommand(groupChatId, messageChatId, user, action.a === "adm_legend" ? "legend" : "maniska");
       return reply || "Выберите игрока";
     }
+    case "role_page": {
+      if (!(await isChatAdmin(groupChatId, userId))) return "Только для администраторов";
+      const view = await choiceView(groupChatId, action.r, action.pg);
+      if (typeof view === "string") return view;
+      if (messageId) await api.editMessage(messageChatId, messageId, view).catch(() => undefined);
+      return `Страница ${action.pg + 1}`;
+    }
     case "role_cancel":
       if (!(await isChatAdmin(groupChatId, userId))) return "Только для администраторов";
       if (messageId) await api.deleteMessage(messageChatId, messageId).catch(() => undefined);
@@ -215,11 +283,17 @@ export async function handleRoleAction(
       const kind = action.r;
       let holder: RoleHolder | null = null;
       if (action.a === "role_pick") {
-        const p = action.n
-          ? candidates(groupChatId).find((x) => x.userId === action.p && !x.profileName && x.displayName === action.n)
-          : playerOf(groupChatId, action.p);
-        if (!p) return "Этого игрока уже нет в записи";
-        holder = holderFrom(p);
+        if (action.m) {
+          const m = await api.getChatMember(groupChatId, action.p).catch(() => null);
+          if (!m) return "Этого участника уже нет в чате";
+          holder = holderFromMember(m);
+        } else {
+          const p = action.n
+            ? candidates(groupChatId).find((x) => x.userId === action.p && !x.profileName && x.displayName === action.n)
+            : playerOf(groupChatId, action.p);
+          if (!p) return "Этого игрока уже нет в записи";
+          holder = holderFrom(p);
+        }
       }
       await assign(groupChatId, kind, holder);
       const done = holder

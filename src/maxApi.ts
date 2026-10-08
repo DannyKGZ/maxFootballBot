@@ -262,6 +262,31 @@ export function getChat(chatId: number): Promise<{ chat_id: number; title?: stri
   return request("GET", `/chats/${chatId}`, {});
 }
 
+/** Удалённый аккаунт MAX: в списке участников он остаётся как «DELETED USER». */
+export function isDeletedUser(m: { first_name?: string; last_name?: string; name?: string }): boolean {
+  const full = (m.name || [m.first_name, m.last_name].filter(Boolean).join(" ")).trim();
+  return /^deleted user$/i.test(full);
+}
+
+/** Все живые участники чата (без ботов и удалённых аккаунтов), постранично по 100. */
+export async function listChatMembers(chatId: number): Promise<MaxChatMember[]> {
+  const out: MaxChatMember[] = [];
+  let marker: number | undefined;
+  for (let page = 0; page < 50; page++) {
+    const res = await getChatMembers(chatId, marker);
+    for (const m of res.members) if (!m.is_bot && !isDeletedUser(m)) out.push(m);
+    if (!res.marker) break;
+    marker = res.marker;
+  }
+  return out;
+}
+
+/** Участник чата по userId (null — не состоит). */
+export async function getChatMember(chatId: number, userId: number): Promise<MaxChatMember | null> {
+  const res = await request<{ members: MaxChatMember[] }>("GET", `/chats/${chatId}/members`, { user_ids: userId });
+  return (res.members ?? []).find((m) => m.user_id === userId) ?? null;
+}
+
 /** Состоит ли пользователь в чате: GET /chats/{chatId}/members?user_ids=... */
 export async function isChatMember(chatId: number, userId: number): Promise<boolean> {
   const res = await request<{ members: MaxChatMember[] }>("GET", `/chats/${chatId}/members`, { user_ids: userId });

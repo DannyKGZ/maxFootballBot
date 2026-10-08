@@ -9,6 +9,9 @@ import { MvpResetScope, mergeMvpNames, resetMvp } from "./settingsStore";
 import { mvpResetKeyboard } from "./keyboard";
 import { MAX_MESSAGE_CHARS } from "./messageParts";
 
+/** Сколько человек упоминать в одном сообщении /всем (больше MAX молча не отмечает). */
+const MENTIONS_PER_MESSAGE = 40;
+
 /** Сброс рейтинга MVP: /мвпСезонныйСброс — только сезон, /мвпОбщийСброс — весь рейтинг. */
 export const MVP_RESET_RE: Array<{ re: RegExp; scope: MvpResetScope }> = [
   { re: /^\/(мвп_?сезонный_?сброс|mvp_reset_season)$/i, scope: "season" },
@@ -118,28 +121,25 @@ export async function mentionAll(
   const body = text?.trim() || (allowEmpty ? "Внимание всем!" : "");
   if (!body) return deny("Напишите текст после команды, например: /Всем Сбор сегодня в 21:00");
 
-  const members: Array<{ user_id: number; name: string }> = [];
-  let marker: number | undefined;
-  for (let page = 0; page < 50; page++) {
-    const res = await api.getChatMembers(groupChatId, marker);
-    for (const m of res.members) {
-      // Полное имя обязательно: с одним first_name MAX не упоминает людей с фамилией.
-      if (!m.is_bot) members.push({ user_id: m.user_id, name: fullName(m) || "участник" });
-    }
-    if (!res.marker) break;
-    marker = res.marker;
-  }
+  // Без ботов и удалённых аккаунтов («DELETED USER»).
+  // Полное имя обязательно: с одним first_name MAX не упоминает людей с фамилией.
+  const members = (await api.listChatMembers(groupChatId)).map((m) => ({ user_id: m.user_id, name: fullName(m) || "участник" }));
   if (members.length === 0) return deny("Не удалось получить список участников чата.");
 
+  // MAX упоминает не больше нескольких десятков человек в одном сообщении — делим
+  // по MENTIONS_PER_MESSAGE (и по длине): 80 участников → два сообщения.
   const chunks: string[] = [];
   let current = `📢 ${escapeHtml(body)}\n\n`;
+  let inCurrent = 0;
   for (const m of members) {
     const piece = mention(m.user_id, m.name);
-    if (current.length + piece.length + 2 > MAX_MESSAGE_CHARS) {
+    if (inCurrent >= MENTIONS_PER_MESSAGE || current.length + piece.length + 2 > MAX_MESSAGE_CHARS) {
       chunks.push(current);
       current = "";
+      inCurrent = 0;
     }
     current += (current && !current.endsWith("\n") ? ", " : "") + piece;
+    inCurrent++;
   }
   chunks.push(current);
   for (const chunk of chunks) await api.sendMessageToChat(groupChatId, { text: chunk, format: "html" });

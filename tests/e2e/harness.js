@@ -105,7 +105,8 @@ function startMock() {
       if (p.endsWith("/members") && u.searchParams.get("user_ids")) {
         const ids = u.searchParams.get("user_ids").split(",").map(Number);
         const allowed = state.chatMembers[chatKey];
-        return send(res, { members: ids.filter((id) => !allowed || allowed.includes(id)).map((user_id) => ({ user_id })) });
+        const full = (id) => state.members.find((m) => m.user_id === id) || { user_id: id };
+        return send(res, { members: ids.filter((id) => !allowed || allowed.includes(id)).map(full) });
       }
       if (req.method === "GET" && /^\/chats\/-?\d+$/.test(p)) {
         return send(res, { chat_id: Number(chatKey), title: state.chatTitles[chatKey] || `Чат ${chatKey}` });

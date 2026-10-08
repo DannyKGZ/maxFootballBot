@@ -40,5 +40,19 @@ module.exports = {
     const parts = t.all().filter((m) => m.text.includes("max://user/1") && m.text.includes("Игрок"));
     const total = parts.reduce((n, m) => n + (m.text.match(/max:\/\/user\//g) || []).length, 0);
     t.ok(parts.length > 1 && parts.every((m) => m.text.length <= 4000) && total === 300, `300 участников (3 страницы списка) → ${parts.length} сообщения, каждое ≤ 4000 символов`, { parts: parts.length, total });
+    const perMsg = parts.map((m) => (m.text.match(/max:\/\/user\//g) || []).length);
+    t.ok(perMsg.every((n) => n <= 40), "в одном сообщении не больше 40 упоминаний", perMsg);
+
+    // 80 участников (как в «Лиге»), из них двое удалённых → 78 упоминаний в двух сообщениях.
+    t.mock.state.members = [
+      ...Array.from({ length: 78 }, (_, i) => ({ user_id: 20_000 + i, first_name: `Игрок${i}`, last_name: "", name: `Игрок${i}` })),
+      { user_id: 30_001, first_name: "DELETED", last_name: "USER", name: "DELETED USER" },
+      { user_id: 30_002, first_name: "DELETED", last_name: "USER", name: "DELETED USER" },
+    ];
+    await t.say(1, "/Всем лига");
+    const lg = t.all().filter((m) => /max:\/\/user\/2\d{4}"/.test(m.text));
+    const lgIds = lg.flatMap((m) => [...m.text.matchAll(/max:\/\/user\/(\d+)/g)].map((x) => Number(x[1])));
+    t.ok(lg.length === 2 && lgIds.length === 78 && new Set(lgIds).size === 78, "80 участников → 2 сообщения, упомянуты все 78 живых", { msgs: lg.length, ids: lgIds.length });
+    t.ok(!lgIds.includes(30_001) && !lg.some((m) => m.text.includes("DELETED")), "удалённые аккаунты не упоминаются");
   },
 };
