@@ -125,7 +125,7 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
     for (const [re, kind] of [[roles.LEGEND_RE, "legend"], [roles.MANISKA_RE, "maniska"]] as const) {
       const m = text.match(re);
       if (!m) continue;
-      const reply = await roles.roleCommand(target, chatId, userId, kind, m[2]);
+      const reply = await roles.roleCommand(target, chatId, message.sender, kind, m[2]);
       if (reply) await api.sendMessageToChat(chatId, { text: reply });
       return;
     }
@@ -238,7 +238,7 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
   for (const [re, kind] of [[roles.LEGEND_RE, "legend"], [roles.MANISKA_RE, "maniska"]] as const) {
     const m = text.match(re);
     if (!m) continue;
-    const reply = await roles.roleCommand(chatId, chatId, userId, kind, m[2]);
+    const reply = await roles.roleCommand(chatId, chatId, message.sender, kind, m[2]);
     if (reply) await api.sendMessageToChat(chatId, { text: reply });
     return;
   }

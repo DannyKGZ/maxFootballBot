@@ -1,5 +1,5 @@
 import { config } from "./config";
-import { MvpEntry, getMaxPlayers, getPayment, getRole, getRosterTemplate } from "./settingsStore";
+import { MvpEntry, getMaxPlayers, getPayment, getRole, isRoleHolderEntry, getRosterTemplate } from "./settingsStore";
 import { FootballSession, Player, VoteCandidate, VoteSession } from "./types";
 
 const WEEKDAYS_RU = [
@@ -58,9 +58,8 @@ export function rosterTitle(session: FootballSession): string {
 
 /** «— Легенда 🏆🏅⚽» / «— 👕 манишкаНосец» у своей записи носителя роли. */
 export function roleTag(session: FootballSession, player: Player): string {
-  if (!player.profileName && !player.auto) return ""; // друзей, записанных легендой, не помечаем
-  if (getRole(session.chatId, "legend")?.userId === player.userId) return " — Легенда 🏆🏅⚽";
-  if (getRole(session.chatId, "maniska")?.userId === player.userId) return " — 👕 манишкаНосец";
+  if (isRoleHolderEntry(player, getRole(session.chatId, "legend"))) return " — Легенда 🏆🏅⚽";
+  if (isRoleHolderEntry(player, getRole(session.chatId, "maniska"))) return " — 👕 манишкаНосец";
   return "";
 }
 

@@ -71,11 +71,22 @@ export type RoleKind = "legend" | "maniska";
 
 /** Кто носит роль: данные профиля — чтобы записывать его в каждую новую запись «как через +». */
 export interface RoleHolder {
+  // Свой аккаунт (self) — userId самого игрока. Иначе игрока записывает друг
+  // (как «+Витя»): userId и имена — того, кто записывает.
   userId: number;
+  self?: boolean; // у старых сохранений нет — считаем true
   displayName: string;
   lastName?: string;
-  profileName: string; // полное имя из профиля MAX (для упоминаний)
+  profileName: string; // полное имя из профиля MAX (для упоминаний); у «друга» — имя записывающего
+  addedByName?: string; // у «друга»: кто его записывает
   since: number; // когда назначен
+}
+
+/** Это запись носителя роли? Свой аккаунт — его собственная запись; «друг» — запись с его именем от того же человека. */
+export function isRoleHolderEntry(p: { userId: number; displayName: string; profileName?: string; auto?: string }, holder: RoleHolder | null): boolean {
+  if (!holder || p.userId !== holder.userId) return false;
+  if (holder.self !== false) return Boolean(p.profileName || p.auto);
+  return !p.profileName && p.displayName.trim().toLowerCase() === holder.displayName.trim().toLowerCase();
 }
 
 const LEGEND_TERM_MS = (since: number) => {

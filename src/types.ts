@@ -179,7 +179,7 @@ export type ButtonAction =
   // Роли чата: легенда и манишкаНосец (p — userId игрока)
   | { a: "adm_legend" }
   | { a: "adm_maniska" }
-  | { a: "role_pick"; r: "legend" | "maniska"; p: number }
+  | { a: "role_pick"; r: "legend" | "maniska"; p: number; n?: string } // n — имя «друга» (записан другим)
   | { a: "role_off"; r: "legend" | "maniska" }
   | { a: "role_cancel" }
   | { a: "mnk_take" } // «👕 Я забрал манишки» после игры

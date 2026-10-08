@@ -1,4 +1,4 @@
-import { RoleHolder, RoleKind, getMaxPlayers, getRole } from "./settingsStore";
+import { RoleHolder, RoleKind, getMaxPlayers, getRole, isRoleHolderEntry } from "./settingsStore";
 import { config } from "./config";
 import { computeNextGameDate, isSignupOpen } from "./gameDays";
 import { getNickname, setNickname } from "./settingsStore";
@@ -35,7 +35,7 @@ function recomputeReserveFlags(session: FootballSession): void {
 
 /** Своя запись носителя роли (через «+» или автоматическая), не друзья, которых он записал. */
 function isRoleEntry(p: Player, holder: RoleHolder | null): boolean {
-  return Boolean(holder && p.userId === holder.userId && (p.profileName || p.auto));
+  return isRoleHolderEntry(p, holder);
 }
 
 /** Легенда — всегда 1-я, манишкаНосец — сразу после неё (остальные — в прежнем порядке). */
@@ -57,13 +57,14 @@ function orderRolePlayers(session: FootballSession): void {
 }
 
 function roleEntry(holder: RoleHolder, kind: RoleKind): Player {
+  const self = holder.self !== false;
   return {
     id: newPlayerId(),
     userId: holder.userId,
     displayName: holder.displayName,
     lastName: holder.lastName,
-    profileName: holder.profileName,
-    addedByName: holder.displayName,
+    profileName: self ? holder.profileName : undefined, // «друга» записывает другой человек — как «+Витя»
+    addedByName: self ? holder.displayName : holder.addedByName,
     addedByFullName: holder.profileName,
     isReserve: false,
     joinedAt: Date.now(),

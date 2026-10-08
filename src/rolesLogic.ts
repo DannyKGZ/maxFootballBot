@@ -2,7 +2,7 @@ import * as api from "./maxApi";
 import { InlineKeyboardAttachment, KeyboardButton } from "./maxApi";
 import { db } from "./db";
 import { applyRoleChange, isChatAdmin } from "./sessionLogic";
-import { RoleHolder, RoleKind, getRole, legendUntil, setRole } from "./settingsStore";
+import { RoleHolder, RoleKind, getRole, isRoleHolderEntry, legendUntil, setRole } from "./settingsStore";
 import { getArchivedSession, getSession } from "./store";
 import { ButtonAction, FootballSession, Player } from "./types";
 
@@ -33,27 +33,34 @@ function holderText(chatId: number, kind: RoleKind): string {
   return kind === "legend" ? `${h.displayName} (до ${fmtDate(legendUntil(h))})` : h.displayName;
 }
 
-/** Кого можно назначить: кто записывался сам (через «+») — в текущей и прошлой записи. */
+/** Кого можно назначить: все из текущей и прошлой записи (и записавшиеся сами, и записанные друзьями). */
 function candidates(chatId: number): Player[] {
-  const seen = new Set<number>();
+  const seen = new Set<string>();
   const out: Player[] = [];
   for (const s of [getSession(chatId), getArchivedSession(chatId)]) {
     for (const p of s?.players ?? []) {
-      if (!p.profileName || seen.has(p.userId)) continue;
-      seen.add(p.userId);
+      const key = p.profileName ? `${p.userId}` : `${p.userId}:${p.displayName.trim().toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
       out.push(p);
     }
   }
   return out;
 }
 
-const holderFrom = (p: Player): RoleHolder => ({
-  userId: p.userId,
-  displayName: p.displayName,
-  lastName: p.lastName,
-  profileName: p.profileName ?? p.displayName,
-  since: Date.now(),
-});
+const holderFrom = (p: Player): RoleHolder =>
+  p.profileName
+    ? { userId: p.userId, self: true, displayName: p.displayName, lastName: p.lastName, profileName: p.profileName, since: Date.now() }
+    : {
+        userId: p.userId,
+        self: false,
+        displayName: p.displayName,
+        profileName: p.addedByFullName ?? p.addedByName ?? p.displayName,
+        addedByName: p.addedByName,
+        since: Date.now(),
+      };
+
+type Sender = { user_id: number; first_name: string; last_name?: string; name?: string };
 
 /** Назначить/снять роль и поправить открытую запись. */
 async function assign(chatId: number, kind: RoleKind, holder: RoleHolder | null): Promise<void> {
@@ -67,15 +74,41 @@ async function assign(chatId: number, kind: RoleKind, holder: RoleHolder | null)
  * /легенда, /манишкаНосец (только админ). `groupChatId` — чат, чью роль меняем;
  * `replyChatId` — куда прислать выбор (сам чат или личка админа). Пусто — выбор уже отправлен.
  */
-export async function roleCommand(groupChatId: number, replyChatId: number, userId: number, kind: RoleKind, arg?: string): Promise<string> {
+export async function roleCommand(
+  groupChatId: number,
+  replyChatId: number,
+  sender: Sender,
+  kind: RoleKind,
+  arg?: string,
+): Promise<string> {
+  const userId = sender.user_id;
   if (!(await isChatAdmin(groupChatId, userId))) return NOT_ADMIN;
-  if (/^(сброс|снять|reset)$/i.test(arg?.trim() ?? "")) {
+  const text = arg?.trim() ?? "";
+  if (/^(сброс|снять|reset)$/i.test(text)) {
     await assign(groupChatId, kind, null);
     return `${TITLE[kind]}: роль снята.`;
   }
+  if (text) {
+    // «/манишкаНосец Володя»: игрок из списков — его; иначе записываем от имени админа (как «+Володя»).
+    if (text.length > 40 || !/\p{L}/u.test(text)) return "Имя — до 40 символов и хотя бы одна буква.";
+    const found = candidates(groupChatId).find((p) => p.displayName.trim().toLowerCase() === text.toLowerCase());
+    const holder: RoleHolder = found
+      ? holderFrom(found)
+      : { userId, self: false, displayName: text, profileName: sender.name || sender.first_name, addedByName: sender.first_name.trim(), since: Date.now() };
+    await assign(groupChatId, kind, holder);
+    return `✅ ${TITLE[kind]}: ${holderText(groupChatId, kind)}.${found ? "" : ` Записывать его будет ${sender.first_name.trim()} (как «+${text}»).`}`;
+  }
   const list = candidates(groupChatId);
-  if (!list.length) return `Выбрать не из кого: нужны игроки, которые записывались сами через «+». Сейчас ${TITLE[kind]} — ${holderText(groupChatId, kind)}.`;
-  const rows = list.map((p) => [btn(`${getRole(groupChatId, kind)?.userId === p.userId ? "✅ " : ""}${p.displayName}`, { a: "role_pick", r: kind, p: p.userId })]);
+  if (!list.length) return `Выбрать не из кого — в записях пока никого. Можно указать имя: /${kind === "legend" ? "легенда" : "манишкаНосец"} Витя. Сейчас ${TITLE[kind]} — ${holderText(groupChatId, kind)}.`;
+  const current = getRole(groupChatId, kind);
+  const rows = list.map((p) => [
+    btn(`${isRoleHolderEntry(p, current) ? "✅ " : ""}${p.displayName}${p.profileName ? "" : ` (записывает ${p.addedByName ?? "друг"})`}`, {
+      a: "role_pick",
+      r: kind,
+      p: p.userId,
+      ...(p.profileName ? {} : { n: p.displayName }),
+    }),
+  ]);
   if (getRole(groupChatId, kind)) rows.push([btn("✖️ Снять роль", { a: "role_off", r: kind })]);
   rows.push([btn("Отмена", { a: "role_cancel" })]);
   const about =
@@ -83,7 +116,7 @@ export async function roleCommand(groupChatId: number, replyChatId: number, user
       ? "Легенда всегда записан 1-м в каждой записи — ровно год с назначения."
       : "МанишкаНосец всегда записан 2-м (после легенды) в каждой записи.";
   await api.sendMessageToChat(replyChatId, {
-    text: `${TITLE[kind]} — сейчас: ${holderText(groupChatId, kind)}.\n${about}\nВыберите игрока (только админ):`,
+    text: `${TITLE[kind]} — сейчас: ${holderText(groupChatId, kind)}.\n${about}\nВыберите игрока (только админ). Нет в списке — напишите имя: /${kind === "legend" ? "легенда" : "манишкаНосец"} Володя`,
     attachments: [kb(rows)],
   });
   return "";
@@ -169,7 +202,7 @@ export async function handleRoleAction(
   switch (action.a) {
     case "adm_legend":
     case "adm_maniska": {
-      const reply = await roleCommand(groupChatId, messageChatId, userId, action.a === "adm_legend" ? "legend" : "maniska");
+      const reply = await roleCommand(groupChatId, messageChatId, user, action.a === "adm_legend" ? "legend" : "maniska");
       return reply || "Выберите игрока";
     }
     case "role_cancel":
@@ -182,7 +215,9 @@ export async function handleRoleAction(
       const kind = action.r;
       let holder: RoleHolder | null = null;
       if (action.a === "role_pick") {
-        const p = playerOf(groupChatId, action.p);
+        const p = action.n
+          ? candidates(groupChatId).find((x) => x.userId === action.p && !x.profileName && x.displayName === action.n)
+          : playerOf(groupChatId, action.p);
         if (!p) return "Этого игрока уже нет в записи";
         holder = holderFrom(p);
       }
