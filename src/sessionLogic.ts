@@ -4,7 +4,6 @@ import { computeNextGameDate, isSignupOpen } from "./gameDays";
 import { getNickname, setNickname } from "./settingsStore";
 import * as api from "./maxApi";
 import {
-  addAnotherKeyboard,
   rosterKeyboard,
   confirmCloseKeyboard,
   confirmRemoveKeyboard,
@@ -278,14 +277,6 @@ export async function isChatAdmin(chatId: number, userId: number): Promise<boole
   }
 }
 
-function findPlayerIndexByUser(session: FootballSession, userId: number): number {
-  // Если пользователь записал несколько человек, "своей" считается последняя добавленная запись.
-  for (let i = session.players.length - 1; i >= 0; i--) {
-    if (session.players[i].userId === userId) return i;
-  }
-  return -1;
-}
-
 type NewPlayer = Pick<Player, "displayName" | "lastName" | "profileName">;
 
 /** Добавляет сразу нескольких игроков и обновляет список ОДИН раз (лимит 2 сообщения/сек на чат). */
@@ -371,7 +362,7 @@ export async function handlePlusCommand(
   userId: number,
   names: string[],
   sender: MaxUser,
-): Promise<void> {
+): Promise<"already" | void> {
   const session = getSession(chatId);
   if (!session) return; // нет активной записи в этом чате
   if (!isSignupOpen(session)) {
@@ -379,7 +370,8 @@ export async function handlePlusCommand(
     return;
   }
 
-  const alreadyRegistered = findPlayerIndexByUser(session, userId) !== -1;
+  // Записан ли сам (через «+»); друзья, которых он записал, не считаются.
+  const alreadyRegistered = session.players.some((p) => p.userId === userId && p.profileName);
 
 
   // Явные имена ("+Рома", "+Рома +Влад") добавляем сразу, даже если автор уже записан.
@@ -393,17 +385,10 @@ export async function handlePlusCommand(
     return;
   }
 
-  // Голый "+": записываем по профилю; если автор уже в списке — уточняем, чтобы не задвоить себя.
-  if (!alreadyRegistered) {
-    await addPlayers(session, userId, [playerFromProfile(sender)], sender);
-    return;
-  }
-
-  setPendingAction({ type: "confirm_add_another", chatId, userId, createdAt: Date.now() });
-  await api.sendMessageToChat(chatId, {
-    text: "Вы уже записаны. Хотите записать другого игрока?",
-    attachments: [addAnotherKeyboard(userId)],
-  });
+  // Голый "+": записываем по профилю; уже записан — ничего не делаем и ни о чём не спрашиваем
+  // (друга записывают сразу с именем: «+Рома»).
+  if (alreadyRegistered) return "already";
+  await addPlayers(session, userId, [playerFromProfile(sender)], sender);
 }
 
 /** Обработка текстового сообщения "-Имя". */

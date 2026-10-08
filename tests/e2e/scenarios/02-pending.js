@@ -1,26 +1,19 @@
-const { sleep } = require("../harness");
-
 module.exports = {
-  name: "Вопросы бота: команды не считаются именем, устаревшие вопросы забываются",
-  env: { PENDING_TTL_MINUTES: "0.05" }, // 3 секунды
+  name: "Повторный «+» ничего не спрашивает",
   async run(t) {
     await t.say(1, "/старт");
     await t.say(2, "+");
     await t.say(2, "+");
-    await t.click(2, t.find(/Хотите записать другого/), "Да");
-    t.ok(!!t.find(/Напишите имя нового игрока/), "«Да» → бот просит имя");
-    await t.say(2, "+Петя +Коля");
-    t.ok(t.lines(t.roster()).length === 3, "«+Петя +Коля» во время вопроса — обычная запись, не имя", t.lines(t.roster()));
+    t.ok(t.lines(t.roster()).join("|") === "1. Ruslan" && !t.find(/Хотите записать другого/), "повторный «+» — без вопроса и без дубля", t.lines(t.roster()));
+    await t.click(2, t.roster(), "➕ Записаться");
+    t.ok(t.toast() === "Вы уже записаны" && t.lines(t.roster()).length === 1, "кнопка «Записаться» повторно — только уведомление");
 
-    await t.say(2, "+");
-    await t.click(2, t.find(/Хотите записать другого/), "Да");
-    await t.say(2, "Валера");
-    t.ok(t.lines(t.roster()).some((l) => l.includes("Валера")), "ответ на вопрос — имя добавлено");
+    await t.say(3, "+Петя");
+    await t.say(3, "+");
+    t.ok(t.lines(t.roster()).join("|") === "1. Ruslan|2. Петя|3. Рома", "записал друга, потом себя — «+» записывает его самого", t.lines(t.roster()));
 
-    await t.say(2, "+");
-    await t.click(2, t.find(/Хотите записать другого/), "Да");
-    await sleep(3500);
-    await t.say(2, "Опоздавший");
-    t.ok(!t.lines(t.roster()).some((l) => l.includes("Опоздавший")), "через 3 с вопрос забыт — сообщение не стало записью");
+    await t.say(4, "+");
+    await t.say(4, "-");
+    t.ok(!!t.find(/Удалить из списка: Влад\?/), "«-» — вопрос с подтверждением");
   },
 };

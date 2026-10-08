@@ -405,7 +405,7 @@ async function handleMessageCallback(update: MaxUpdate): Promise<void> {
     let toast: string | undefined;
     switch (action.a) {
       case "join":
-        await sessionLogic.handlePlusCommand(chatId, pressedByUserId, [], callback.user);
+        if ((await sessionLogic.handlePlusCommand(chatId, pressedByUserId, [], callback.user)) === "already") toast = "Вы уже записаны";
         break;
       case "leave":
         await sessionLogic.handleMinusCommand(chatId, pressedByUserId);
