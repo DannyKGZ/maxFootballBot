@@ -185,7 +185,8 @@ export function getVoteWinners(vote: VoteSession): string[] {
 }
 
 /** Итоговое сообщение после завершения голосования — остаётся в чате при очистке. */
-export function buildMvpResultText(vote: VoteSession): string {
+/** `congrats` — поздравления победителям (по одному на каждого, в порядке getVoteWinners). */
+export function buildMvpResultText(vote: VoteSession, congrats: string[] = []): string {
   const date = new Date(vote.gameDate);
   const weekday = WEEKDAYS_RU[date.getDay()];
   const header = `🏆 MVP матча ${weekday} ${formatDateRu(date)} года`;
@@ -210,10 +211,12 @@ export function buildMvpResultText(vote: VoteSession): string {
     .sort((a, b) => b.count - a.count || Number(isWinner(b)) - Number(isWinner(a)))
     .map((c, i) => `${i + 1}. ${barLine(vote, c, c.count)} · ${votersOf(vote, c.index)}`);
 
+  const congratLines = winners.flatMap((w, i) => (congrats[i] ? ["", `🎉 ${w}! ${congrats[i]}`] : []));
   return [
     header,
     winnerLine,
     winners.length === 1 ? "Победителю засчитан MVP в общий рейтинг (команда /mvp)." : "Каждому засчитан MVP в общий рейтинг (команда /mvp).",
+    ...congratLines,
     "",
     "Результаты:",
     ...resultLines,

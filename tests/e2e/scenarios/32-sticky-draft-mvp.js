@@ -56,6 +56,8 @@ module.exports = {
     await settle();
     const res = t.find(/^🏆 MVP матча/);
     t.ok(res && res.text.includes("MVP матча (3): Рома, Влад, Пятый — по 1 голос"), "до 3 MVP: при ничьей — первые трое", res && res.text);
+    const cg = res ? res.text.split("\n").filter((l) => l.startsWith("🎉 ")) : [];
+    t.ok(cg.length === 3 && cg[0].startsWith("🎉 Рома! ") && cg[1].startsWith("🎉 Влад! ") && new Set(cg.map((l) => l.replace(/^🎉 \S+! /, ""))).size === 3, "каждому MVP — своё случайное поздравление", cg);
     t.ok(t.mvpCount("Рома") === 1 && t.mvpCount("Пятый") === 1 && t.mvpCount("Шестой") === 0, "в рейтинг засчитано троим");
     t.ok(t.count(/^⚽ Составы готовы/) === 1, "после итогов составы не удалены");
 

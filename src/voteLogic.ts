@@ -24,6 +24,7 @@ import {
 } from "./store";
 import { FootballSession, VoteCandidate, VoteSession } from "./types";
 import { maniskaPromptMessageId, postManiskaPrompt } from "./rolesLogic";
+import { pickCongrats } from "./mvpCongrats";
 
 /**
  * Голосование за MVP матча. Правила (по ТЗ):
@@ -280,7 +281,8 @@ export async function finalizeVote(chatId: number, reason: boolean | "all_voted"
       : reason
         ? "\n\nГолосование закрыто автоматически по времени."
         : "";
-  const res = await api.sendMessageToChat(chatId, { text: buildMvpResultText(vote) + note });
+  const congrats = pickCongrats(chatId, getVoteWinners(vote).length);
+  const res = await api.sendMessageToChat(chatId, { text: buildMvpResultText(vote, congrats) + note });
 
   // Составы (дележка с упоминаниями и оплатой) тоже остаются.
   const keep = [
