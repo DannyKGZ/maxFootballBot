@@ -184,7 +184,7 @@ export type ButtonAction =
   | { a: "role_off"; r: "legend" | "maniska" }
   | { a: "role_cancel" }
   | { a: "mnk_take" } // «👕 Я забрал манишки» после игры
-  | { a: "mnk_undo" } // «↩️ Я ошибся»
+  | { a: "mnk_undo" } // кнопка с именем забравшего: он нажимает — «я ошибся»
   // Редактор списка в личке админа (k — ключ игрока userId:joinedAt)
   | { a: "adm_edit" }
   // Дележка на команды (k — ключ игрока)

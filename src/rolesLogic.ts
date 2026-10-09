@@ -13,7 +13,7 @@ import { fullName } from "./messageFormatter";
  *  - 👕 манишкаНосец — у кого манишки, всегда 2-й (после легенды), один на чат.
  * Назначает админ: /легенда, /манишкаНосец (или кнопки в панели) — выбор игрока
  * кнопками. МанишкаНосца после игры может отметить и сам игрок: под
- * голосованием за MVP есть кнопка «👕 Я забрал манишки» (и «↩️ Я ошибся»).
+ * голосованием за MVP есть кнопка «👕 Я забрал манишки» (потом на ней имя забравшего).
  * Из записи носитель удаляется как обычно — сам («-») или админом.
  */
 
@@ -208,18 +208,16 @@ export function maniskaPromptMessageId(chatId: number): string | undefined {
   return loadPrompt(chatId)?.messageId;
 }
 
+/**
+ * «👕 Кто забрал манишки?» с одной кнопкой. Кнопку MAX показывает всем одинаково,
+ * поэтому после нажатия на ней — имя забравшего; его повторное нажатие = «я ошибся».
+ */
 function promptView(chatId: number, p: ManiskaPrompt): { text: string; attachments: InlineKeyboardAttachment[] } {
-  if (p.takenBy !== undefined) {
-    const name = getRole(chatId, "maniska")?.displayName ?? "игрок";
-    return {
-      text: `👕 Манишки забрал: ${name} — в следующую игру он записан вторым (после легенды).\nОшибка? Пусть ${name} нажмёт «Я ошибся».`,
-      attachments: [kb([[btn("↩️ Я ошибся", { a: "mnk_undo" })]])],
-    };
-  }
-  return {
-    text: "👕 Кто забрал манишки? Нажмите кнопку — в следующую игру бот запишет вас вторым (после легенды). Нажать может только тот, кто играл.",
-    attachments: [kb([[btn("👕 Я забрал манишки", { a: "mnk_take" })]])],
-  };
+  const button =
+    p.takenBy !== undefined
+      ? btn(`👕 ${getRole(chatId, "maniska")?.displayName ?? "игрок"}`, { a: "mnk_undo" })
+      : btn("👕 Я забрал манишки", { a: "mnk_take" });
+  return { text: "👕 Кто забрал манишки?", attachments: [kb([[button]])] };
 }
 
 /** После игры (вместе с голосованием за MVP): кнопка для манишкаНосца. */
@@ -317,18 +315,19 @@ export async function handleRoleAction(
       p.takenBy = userId;
       await assign(groupChatId, "maniska", holder);
       await refreshPrompt(groupChatId, p);
-      return "👕 Вы манишкаНосец — в следующую игру записаны вторым";
+      return "👕 Вы забрали манишки — в следующую игру записаны вторым. Ошиблись — нажмите кнопку ещё раз";
     }
     case "mnk_undo": {
       const p = loadPrompt(groupChatId);
       if (!p || p.messageId !== messageId || p.takenBy === undefined) return "Эта кнопка уже не действует";
-      if (p.takenBy !== userId && !(await isChatAdmin(groupChatId, userId))) return "«Я ошибся» может нажать только тот, кто забрал манишки";
+      // Кнопка с именем: забравший нажимает — отмена («я ошибся»); остальным — кто забрал.
+      if (p.takenBy !== userId) return `Манишки забрал ${getRole(groupChatId, "maniska")?.displayName ?? "другой игрок"}`;
       const previous = p.previous ?? null;
       delete p.takenBy;
       delete p.previous;
       await assign(groupChatId, "maniska", previous);
       await refreshPrompt(groupChatId, p);
-      return "Отменено — нажать может другой игрок";
+      return "Вы отменили — манишки может забрать другой игрок";
     }
   }
   return "Готово";
