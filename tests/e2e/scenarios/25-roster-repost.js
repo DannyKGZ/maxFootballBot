@@ -16,7 +16,7 @@ module.exports = {
     await t.say(2, "-");
     await t.click(2, t.find(/Удалить из списка: Ruslan\?/), "Да");
     const msgs = t.all();
-    t.ok(msgs[msgs.length - 1].text.startsWith("Футбол в") && /Вова.*переходит из резерва/.test(msgs[msgs.length - 2].text), "после «-»: сначала кто поднялся из резерва, последним — свежий список", msgs.slice(-2).map((m) => m.text.slice(0, 30)));
+    t.ok(msgs[msgs.length - 1].text.startsWith("Футбол в") && /^⬆️ Вова.* заменил Ruslan$/.test(msgs[msgs.length - 2].text), "после «-»: сначала кто поднялся из резерва, последним — свежий список", msgs.slice(-2).map((m) => m.text.slice(0, 30)));
     t.ok(t.count(/^Футбол в/) === 1 && t.lines(last()).join("|") === "1. Рома|2. Вова", "в чате один актуальный список", t.lines(last()));
 
     await t.say(1, "/переименовать 2 Владимир");

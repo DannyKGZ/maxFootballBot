@@ -329,18 +329,39 @@ async function addPlayers(
  */
 async function removePlayerAt(session: FootballSession, index: number): Promise<void> {
   const wasReserve = new Set(session.players.filter((p) => p.isReserve));
-  session.players.splice(index, 1);
+  const [removed] = session.players.splice(index, 1);
   recomputeReserveFlags(session);
 
   // Сначала — кто поднялся из резерва, потом свежий список: он должен быть последним в чате.
+  // «⬆️ Янис заменил Рому» — кто ушёл из основы и кто занял его место.
   const promoted = session.players.filter((p) => wasReserve.has(p) && !p.isReserve);
   for (const p of promoted) {
     const by = p.addedByName && p.addedByName !== p.displayName ? ` (записал ${p.addedByName})` : "";
     await api.sendMessageToChat(session.chatId, {
-      text: `⬆️ ${p.displayName}${by} переходит из резерва в основной состав — освободилось место.`,
+      text: `⬆️ ${p.displayName}${by} заменил ${accusativeName(removed.displayName)}`,
     });
   }
   await repostRoster(session);
+}
+
+/**
+ * Имя в винительном падеже для «заменил Рому»: Рома → Рому, Ваня → Ваню,
+ * Андрей → Андрея, Игорь → Игоря, Сергей Такмазьян → Сергея Такмазьяна.
+ * Склоняется каждое слово из кириллицы; латиница, цифры и несклоняемые
+ * окончания (Серго, Власенко) остаются как есть.
+ */
+function accusativeWord(word: string): string {
+  if (!/^[А-ЯЁа-яё-]+$/.test(word) || word.length < 2) return word;
+  const lower = word.toLowerCase();
+  if (lower.endsWith("а")) return word.slice(0, -1) + "у";
+  if (lower.endsWith("я")) return word.slice(0, -1) + "ю";
+  if (lower.endsWith("й") || lower.endsWith("ь")) return word.slice(0, -1) + "я";
+  if (/[бвгджзклмнпрстфхцчшщ]$/.test(lower)) return word + "а";
+  return word;
+}
+
+export function accusativeName(name: string): string {
+  return name.trim().split(/\s+/).map(accusativeWord).join(" ");
 }
 
 /** Игрок из профиля MAX для голого "+": first_name (+ last_name), в скобках name. */
