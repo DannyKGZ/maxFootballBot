@@ -224,6 +224,7 @@ export async function repostVoteMessage(chatId: number): Promise<boolean> {
   const res = await api.sendMessageToChat(chatId, {
     text: buildVoteText(vote),
     attachments: [voteKeyboard(vote)],
+    notify: false, // перепост внизу чата — без уведомления (первое сообщение голосования уведомляет)
   });
   vote.messageId = res.message.body.mid;
   setVoteSession(vote);

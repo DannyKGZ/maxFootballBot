@@ -111,7 +111,7 @@ export async function repostDraftMessage(chatId: number): Promise<void> {
   const s = getSession(chatId);
   if (!s?.draft) return;
   const old = s.draft.messageId;
-  const res = await api.sendMessageToChat(chatId, render(s));
+  const res = await api.sendMessageToChat(chatId, { ...render(s), notify: false }); // перепост — без уведомления
   s.draft.messageId = res.message.body.mid;
   setSession(s);
   if (old) await api.deleteMessage(chatId, old).catch(() => api.editMessage(chatId, old, { text: "⚽ Дележка — актуальное сообщение ниже ⬇️", attachments: [] }).catch(() => undefined));

@@ -81,14 +81,14 @@ function startMock() {
         if (DENIED_DM.includes(userId)) return send(res, { code: "chat.denied" }, 403);
         if (tooLong(b.text)) return send(res, { code: "text.length", message: `text is too long: ${b.text.length}` }, 400);
         const id = "mid." + ++seq;
-        messages.set(id, { mid: id, chat: Number(u.searchParams.get("chat_id")) || 0, user: userId, text: b.text, format: b.format, attachments: b.attachments || [] });
+        messages.set(id, { mid: id, chat: Number(u.searchParams.get("chat_id")) || 0, user: userId, text: b.text, format: b.format, notify: b.notify, attachments: b.attachments || [] });
         return send(res, { message: { body: { mid: id, seq } } });
       }
       if (req.method === "PUT" && p === "/messages") {
         const m = messages.get(mid);
         if (!m) return send(res, { success: false }, 404);
         if (tooLong(b.text)) return send(res, { code: "text.length", message: `text is too long: ${b.text.length}` }, 400);
-        Object.assign(m, { text: b.text, format: b.format, attachments: b.attachments || [] });
+        Object.assign(m, { text: b.text, format: b.format, notify: b.notify, attachments: b.attachments || [] });
         return send(res, { success: true });
       }
       if (req.method === "DELETE" && p === "/messages") {

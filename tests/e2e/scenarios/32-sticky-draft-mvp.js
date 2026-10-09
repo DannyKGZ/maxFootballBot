@@ -1,7 +1,7 @@
 const { sleep } = require("../harness");
 
 module.exports = {
-  name: "Дележка и голосование держатся внизу; оплата в составах; до 3 MVP",
+  name: "Идущие дележка и голосование держатся внизу (без уведомлений); оплата в составах; до 3 MVP",
   env: { MAX_PLAYERS: "6", STICKY_DELAY_MS: "300", PAYMENT_AMOUNT: "350", PAYMENT_DETAILS: "Т-банк 0000" },
   async run(t) {
     const settle = async () => {
@@ -21,6 +21,7 @@ module.exports = {
     await t.say(5, "болтовня");
     await settle();
     t.ok(/^⚽ Дележка/.test(last().text) && t.count(/^⚽ Дележка/) === 1, "после сообщения в чате дележка снова внизу, старая удалена");
+    t.ok(last().notify === false, "перепост — без уведомления");
 
     while (t.find(/^⚽ Дележка/)) {
       const d = t.find(/^⚽ Дележка/);
@@ -31,10 +32,12 @@ module.exports = {
     t.ok(done && done.format === "html" && done.text.includes("💰 За игру 350 ₽ с игрока на Т-банк 0000"), "в составах — напоминание об оплате", done && done.text);
     t.ok(done && done.text.includes('<a href="max://user/2">Ruslan</a> — 700 ₽ (Ruslan, Петя)') && done.text.includes('<a href="max://user/6">Шестой</a> — 350 ₽'), "игроки отмечены (упоминания) с суммой", done && done.text);
 
-    // Вставка роcтера (кто-то вышел/записался) — составы опять уходят вниз.
+    // Составы готовы — больше не держим их внизу (иначе бот перепостил бы их на каждое сообщение).
+    const doneMid1 = done.mid;
     await t.say(9, "+"); // 7-й — в резерв
+    await t.say(5, "болтовня");
     await settle();
-    t.ok(/^⚽ Составы готовы/.test(last().text) && t.count(/^⚽ Составы готовы/) === 1, "новый список выше, составы снова внизу");
+    t.ok(/^Футбол в/.test(last().text) && t.find(/^⚽ Составы готовы/).mid === doneMid1, "готовые составы не перепубликуются");
 
     // Голосование: теперь внизу держится оно.
     await t.say(1, "/голосование");

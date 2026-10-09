@@ -5,8 +5,9 @@ import { getSession, getVoteSession } from "./store";
 import { repostVoteMessage } from "./voteLogic";
 
 /**
- * «Держать внизу»: пока идёт дележка, затем до конца голосования за MVP, их
- * сообщение всегда последнее в чате. В MAX нет закрепления внизу, поэтому
+ * «Держать внизу»: пока идёт дележка (выбор капитанов и игроков) и пока идёт
+ * голосование за MVP, их сообщение всегда последнее в чате. Готовые составы и
+ * итоги не держим. Перепост — без уведомления (notify: false), чтобы не спамить. В MAX нет закрепления внизу, поэтому
  * когда в чате появляется что-то новое (пишет человек или бот), через
  * STICKY_DELAY_MS бот публикует сообщение заново, а старое удаляет. Несколько
  * сообщений подряд дают один перепост. После итогов голосования — не держим.
@@ -15,12 +16,12 @@ import { repostVoteMessage } from "./voteLogic";
 const timers = new Map<number, NodeJS.Timeout>();
 const reposting = new Set<number>();
 
-/** Что держим внизу: голосование, иначе дележка/составы текущей записи (пока MVP не выбран). */
+/** Что держим внизу: идущее голосование, иначе идущую дележку (составы ещё не готовы). */
 function stickyOf(chatId: number): { kind: "vote" | "draft"; messageId: string | null } | null {
   const vote = getVoteSession(chatId);
   if (vote) return { kind: "vote", messageId: vote.messageId };
   const session = getSession(chatId);
-  if (session?.draft && !session.mvpDone) return { kind: "draft", messageId: session.draft.messageId };
+  if (session?.draft && session.draft.stage !== "done") return { kind: "draft", messageId: session.draft.messageId };
   return null;
 }
 
