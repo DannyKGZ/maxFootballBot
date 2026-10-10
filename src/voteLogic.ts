@@ -10,7 +10,7 @@ import {
   voteCounts,
 } from "./messageFormatter";
 import { isChatAdmin } from "./sessionLogic";
-import { addMvpWins, getMvpRating, getSeasonStart } from "./settingsStore";
+import { RoleHolder, addMvpWins, getMvpRating, getSeasonStart } from "./settingsStore";
 import {
   deleteVoteSession,
   getArchivedSession,
@@ -256,6 +256,25 @@ export async function finishVote(chatId: number, adminUserId: number): Promise<F
   return "finished";
 }
 
+/** Чей аккаунт за победителем (для «легенды года»): сам игрок или тот, кто его записывает. */
+function winnerHolder(vote: VoteSession, name: string): RoleHolder | null {
+  const c = vote.candidates.find((x) => x.displayName === name);
+  if (!c || c.ownerId === undefined) return null;
+  const game = [getSession(vote.chatId), getArchivedSession(vote.chatId)].find((s) => s?.date === vote.gameDate);
+  const p = game?.players.find((x) => x.userId === c.ownerId && x.displayName === name && Boolean(x.profileName) === Boolean(c.isSelf));
+  if (c.isSelf) {
+    return { userId: c.ownerId, self: true, displayName: name, lastName: p?.lastName, profileName: p?.profileName ?? name, since: Date.now() };
+  }
+  return {
+    userId: c.ownerId,
+    self: false,
+    displayName: name,
+    profileName: p?.addedByFullName ?? p?.addedByName ?? name,
+    addedByName: p?.addedByName,
+    since: Date.now(),
+  };
+}
+
 /**
  * Подводит итоги: MVP получает +1 в рейтинг, публикуется итог (остаётся в
  * чате), затем удаляются прочие сообщения бота с прошлой очистки — кроме
@@ -268,7 +287,8 @@ export async function finalizeVote(chatId: number, reason: boolean | "all_voted"
   deleteVoteSession(chatId);
   if (vote.messageId) await api.deleteMessage(chatId, vote.messageId).catch(() => undefined);
 
-  addMvpWins(chatId, getVoteWinners(vote));
+  const winners = getVoteWinners(vote);
+  addMvpWins(chatId, winners, winners.map((name) => winnerHolder(vote, name)));
   // MVP этой игры выбран — её дележку больше не держим внизу (stickyLogic.ts).
   const game = getSession(chatId);
   if (game && game.date === vote.gameDate) {

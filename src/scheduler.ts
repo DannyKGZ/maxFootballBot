@@ -4,6 +4,7 @@ import { closeSignupIfStarted, publishNewSession } from "./sessionLogic";
 import { runNotifications } from "./notifications";
 import { loadSchedule } from "./settingsStore";
 import { slotCrons } from "./gameDays";
+import { rolloverIfDue } from "./seasonLogic";
 import { getAllSessions, getAllVoteSessions } from "./store";
 import { autoStartVoteIfDue, finalizeVote } from "./voteLogic";
 
@@ -59,6 +60,11 @@ async function tick(now = Date.now()): Promise<void> {
   }
 
   await runNotifications(now);
+
+  // Новый сезон / игровой год: сезонный рейтинг MVP с нуля, 1 декабря — легенда года.
+  for (const chatId of config.chatIds) {
+    await rolloverIfDue(chatId, new Date(now)).catch((err) => console.error(`[scheduler] ошибка смены сезона в чате ${chatId}:`, err));
+  }
 
   // Через час после начала игры (в 21:30) голосование за MVP открывается само.
   for (const session of sessions) {

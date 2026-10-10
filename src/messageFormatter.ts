@@ -1,3 +1,4 @@
+import { SEASON_MONTHS, seasonLabel, seasonOf } from "./gameSeasons";
 import { config } from "./config";
 import { MvpEntry, getMaxPlayers, getPayment, getRole, isRoleHolderEntry, getRosterTemplate } from "./settingsStore";
 import { FootballSession, Player, VoteCandidate, VoteSession } from "./types";
@@ -224,7 +225,7 @@ export function buildMvpResultText(vote: VoteSession, congrats: string[] = []): 
 }
 
 /** Рейтинг MVP по команде /mvp: сезон и за всё время. */
-export function buildMvpRatingText(rating: MvpEntry[], seasonStart: Date | null = null): string {
+export function buildMvpRatingText(rating: MvpEntry[], seasonStart: Date | null = null, now = new Date()): string {
   const medals = ["🥇", "🥈", "🥉"];
   const table = (entries: Array<{ name: string; n: number }>) =>
     entries.length
@@ -235,13 +236,31 @@ export function buildMvpRatingText(rating: MvpEntry[], seasonStart: Date | null 
     .filter((e) => e.season > 0)
     .map((e) => ({ name: e.name, n: e.season }))
     .sort((a, b) => b.n - a.n || a.name.localeCompare(b.name, "ru"));
+  const year = rating
+    .filter((e) => e.year > 0)
+    .map((e) => ({ name: e.name, n: e.year }))
+    .sort((a, b) => b.n - a.n || a.name.localeCompare(b.name, "ru"));
   const total = rating.filter((e) => e.count > 0).map((e) => ({ name: e.name, n: e.count }));
 
   if (total.length === 0) {
     return "🏆 Рейтинг MVP пока пуст — после первого голосования здесь появятся игроки.";
   }
-  const since = seasonStart ? ` (с ${formatDateRu(seasonStart)})` : "";
-  return ["🏆 Рейтинг MVP", "", `Сезон${since}:`, ...table(season), "", "За всё время:", ...table(total)].join("\n");
+  // Сезон — по календарю (Зима дек–фев, Весна, Лето, Осень сен–ноя); если админ сбрасывал
+  // сезон вручную позже начала сезона — показываем, с какого дня идёт счёт.
+  const s = seasonOf(now);
+  const since = seasonStart && seasonStart.getTime() > s.start.getTime() + 86_400_000 ? `с ${formatDateRu(seasonStart)}` : SEASON_MONTHS[s.name];
+  return [
+    "🏆 Рейтинг MVP",
+    "",
+    `Сезон «${seasonLabel(s)}» (${since}):`,
+    ...table(season),
+    "",
+    `Игровой год ${s.gameYear} (с 01.12.${s.gameYear - 1}) — лучший станет легендой года:`,
+    ...table(year),
+    "",
+    "За всё время:",
+    ...table(total),
+  ].join("\n");
 }
 
 /** Напоминание перед игрой (за REMINDER_HOURS_BEFORE часов). */

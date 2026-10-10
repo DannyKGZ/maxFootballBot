@@ -31,6 +31,12 @@ CREATE TABLE IF NOT EXISTS mvp_players (
   chat_id INTEGER NOT NULL, name_key TEXT NOT NULL, name TEXT NOT NULL,
   count INTEGER NOT NULL,                      -- общий счёт MVP (за всё время)
   season_count INTEGER NOT NULL DEFAULT 0,     -- счёт текущего сезона
+  year_count INTEGER NOT NULL DEFAULT 0,       -- счёт игрового года (декабрь–ноябрь)
+  PRIMARY KEY (chat_id, name_key)
+);
+-- Кто стоит за именем в рейтинге MVP (для «легенды года»): аккаунт игрока или того, кто его записывает.
+CREATE TABLE IF NOT EXISTS mvp_users (
+  chat_id INTEGER NOT NULL, name_key TEXT NOT NULL, holder TEXT NOT NULL, -- JSON RoleHolder
   PRIMARY KEY (chat_id, name_key)
 );
 CREATE TABLE IF NOT EXISTS mvp_aliases (
@@ -72,6 +78,12 @@ function upgradeSchema(d: Database.Database): void {
     d.exec("ALTER TABLE mvp_players ADD COLUMN season_count INTEGER NOT NULL DEFAULT 0");
     d.exec("UPDATE mvp_players SET season_count = count");
     console.log("[db] в рейтинг MVP добавлен сезонный счёт (прошлые победы засчитаны в текущий сезон)");
+  }
+  if (!cols.some((c) => c.name === "year_count")) {
+    // Счёт игрового года: бот работает с осени 2026 — все прошлые победы относятся к текущему году.
+    d.exec("ALTER TABLE mvp_players ADD COLUMN year_count INTEGER NOT NULL DEFAULT 0");
+    d.exec("UPDATE mvp_players SET year_count = count");
+    console.log("[db] в рейтинг MVP добавлен счёт игрового года");
   }
 
   // Несколько чатов: расписание, время игры и шапка записи стали своими у каждого

@@ -183,6 +183,7 @@ export interface MvpEntry {
   name: string;
   count: number; // за всё время
   season: number; // в текущем сезоне
+  year: number; // в текущем игровом году (декабрь–ноябрь)
 }
 
 export type MvpResetScope = "season" | "all";
@@ -206,20 +207,61 @@ function resolve(chatId: number, name: string): string {
 }
 
 /** Начисляет по +1 MVP каждому из победителей голосования. */
-export function addMvpWins(chatId: number, names: string[]): void {
+export function addMvpWins(chatId: number, names: string[], holders: Array<RoleHolder | null> = []): void {
   const st = db().prepare(
-    `INSERT INTO mvp_players (chat_id, name_key, name, count, season_count) VALUES (?, ?, ?, 1, 1)
-     ON CONFLICT (chat_id, name_key) DO UPDATE SET count = count + 1, season_count = season_count + 1`,
+    `INSERT INTO mvp_players (chat_id, name_key, name, count, season_count, year_count) VALUES (?, ?, ?, 1, 1, 1)
+     ON CONFLICT (chat_id, name_key) DO UPDATE SET count = count + 1, season_count = season_count + 1, year_count = year_count + 1`,
   );
+  const user = db().prepare("INSERT OR REPLACE INTO mvp_users (chat_id, name_key, holder) VALUES (?, ?, ?)");
   db().transaction(() => {
-    for (const name of names) st.run(chatId, resolve(chatId, name), name.trim());
+    names.forEach((name, i) => {
+      const key = resolve(chatId, name);
+      st.run(chatId, key, name.trim());
+      // Кто стоит за именем — чтобы в конце года назначить легенду года.
+      if (holders[i]) user.run(chatId, key, JSON.stringify(holders[i]));
+    });
   })();
+}
+
+/** Аккаунт за именем из рейтинга MVP (null — неизвестен, например победы до этой доработки). */
+export function getMvpUser(chatId: number, name: string): RoleHolder | null {
+  const row = db().prepare("SELECT holder FROM mvp_users WHERE chat_id = ? AND name_key = ?").get(chatId, resolve(chatId, name)) as
+    | { holder: string }
+    | undefined;
+  return row ? (JSON.parse(row.holder) as RoleHolder) : null;
+}
+
+// ---- Смена сезона и игрового года (см. gameSeasons.ts, seasonLogic.ts) ----
+
+const periodKey = (chatId: number) => `mvp_period:${chatId}`;
+
+/** Сезон, по которому сейчас идёт сезонный счёт («2026-Осень»); null — ещё не отмечали. */
+export function getMvpPeriod(chatId: number): string | null {
+  const row = db().prepare("SELECT value FROM meta WHERE key = ?").get(periodKey(chatId)) as { value: string } | undefined;
+  return row?.value ?? null;
+}
+
+export function setMvpPeriod(chatId: number, key: string, seasonStart: Date): void {
+  db().transaction(() => {
+    db().prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(periodKey(chatId), key);
+    db().prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(`mvp_season_start:${chatId}`, seasonStart.toISOString());
+  })();
+}
+
+/** Новый сезон: сезонный счёт с нуля. */
+export function resetSeasonCounts(chatId: number): void {
+  db().prepare("UPDATE mvp_players SET season_count = 0 WHERE chat_id = ?").run(chatId);
+}
+
+/** Новый игровой год: годовой счёт с нуля. */
+export function resetYearCounts(chatId: number): void {
+  db().prepare("UPDATE mvp_players SET year_count = 0 WHERE chat_id = ?").run(chatId);
 }
 
 /** Рейтинг чата: больше MVP за всё время — выше, при равенстве — по имени. */
 export function getMvpRating(chatId: number): MvpEntry[] {
   const rows = db()
-    .prepare("SELECT name, count, season_count AS season FROM mvp_players WHERE chat_id = ?")
+    .prepare("SELECT name, count, season_count AS season, year_count AS year FROM mvp_players WHERE chat_id = ?")
     .all(chatId) as MvpEntry[];
   return rows.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "ru"));
 }
@@ -260,16 +302,18 @@ export function mergeMvpNames(chatId: number, from: string, to: string): MergeRe
   const fromKey = resolve(chatId, from);
   const toKey = resolve(chatId, to);
   if (fromKey === toKey) return { ok: false, error: "Это уже один и тот же игрок." };
-  const get = d.prepare("SELECT name, count, season_count AS season FROM mvp_players WHERE chat_id = ? AND name_key = ?");
+  const get = d.prepare("SELECT name, count, season_count AS season, year_count AS year FROM mvp_players WHERE chat_id = ? AND name_key = ?");
   const source = get.get(chatId, fromKey) as MvpEntry | undefined;
   if (!source) return { ok: false, error: `В рейтинге нет игрока «${from.trim()}».` };
 
   d.transaction(() => {
     d.prepare(
-      `INSERT INTO mvp_players (chat_id, name_key, name, count, season_count) VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO mvp_players (chat_id, name_key, name, count, season_count, year_count) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT (chat_id, name_key) DO UPDATE SET
-         count = count + excluded.count, season_count = season_count + excluded.season_count`,
-    ).run(chatId, toKey, to.trim(), source.count, source.season);
+         count = count + excluded.count, season_count = season_count + excluded.season_count,
+         year_count = year_count + excluded.year_count`,
+    ).run(chatId, toKey, to.trim(), source.count, source.season, source.year);
+    d.prepare("UPDATE mvp_users SET name_key = ? WHERE chat_id = ? AND name_key = ? AND NOT EXISTS (SELECT 1 FROM mvp_users WHERE chat_id = ? AND name_key = ?)").run(toKey, chatId, fromKey, chatId, toKey);
     d.prepare("DELETE FROM mvp_players WHERE chat_id = ? AND name_key = ?").run(chatId, fromKey);
     d.prepare("INSERT OR REPLACE INTO mvp_aliases (chat_id, from_key, to_key) VALUES (?, ?, ?)").run(chatId, fromKey, toKey);
   })();

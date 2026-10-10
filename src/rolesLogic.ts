@@ -57,7 +57,7 @@ async function memberCandidates(chatId: number): Promise<MaxChatMember[]> {
   return members.sort((a, b) => fullName(a).localeCompare(fullName(b), "ru"));
 }
 
-const holderFromMember = (m: MaxChatMember): RoleHolder => ({
+export const holderFromMember = (m: MaxChatMember): RoleHolder => ({
   userId: m.user_id,
   self: true,
   displayName: getNickname(m.user_id) ?? ((m.first_name ?? "").trim() || fullName(m)),
@@ -134,7 +134,7 @@ const holderFrom = (p: Player): RoleHolder =>
 type Sender = { user_id: number; first_name: string; last_name?: string; name?: string };
 
 /** Назначить/снять роль и поправить открытую запись. */
-async function assign(chatId: number, kind: RoleKind, holder: RoleHolder | null): Promise<void> {
+export async function assign(chatId: number, kind: RoleKind, holder: RoleHolder | null): Promise<void> {
   const previous = getRole(chatId, kind);
   setRole(chatId, kind, holder);
   // Легенда может и сам забрать манишки: роли не мешают друг другу, в списке он один раз — 1-м.

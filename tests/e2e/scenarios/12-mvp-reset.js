@@ -26,7 +26,7 @@ module.exports = {
     t.ok(t.mvpCount("Рус") === 3 && season("Рус") === 3, "прошлые победы засчитаны и в сезон");
     await t.say(2, "/mvp");
     const r1 = t.find(/^🏆 Рейтинг MVP/).text;
-    t.ok(r1.includes("Сезон:\n🥇 Рус — 3") && r1.includes("За всё время:\n🥇 Рус — 3"), "/mvp показывает сезон и всё время", r1);
+    t.ok(/Сезон «[^»]+» \([^)]*\):\n🥇 Рус — 3/.test(r1) && r1.includes("Игровой год") && r1.includes("За всё время:\n🥇 Рус — 3"), "/mvp показывает сезон и всё время", r1);
 
     await t.say(1, "/старт");
     await t.say(2, "+");
@@ -50,7 +50,7 @@ module.exports = {
     t.ok(season("Рус") === 0 && season("Ruslan") === 0 && t.mvpCount("Рус") === 3 && t.mvpCount("Ruslan") === 1, "сезон обнулён, общий счёт сохранён");
     await t.say(2, "/mvp");
     const r2 = t.find(/^🏆 Рейтинг MVP/).text;
-    t.ok(/Сезон \(с \d\d\.\d\d\.\d{4}\):\nпока никого/.test(r2) && r2.includes("🥇 Рус — 3\n🥈 Ruslan — 1"), "/mvp: новый сезон пуст, всё время на месте", r2);
+    t.ok(/Сезон «[^»]+» \(с \d\d\.\d\d\.\d{4}\):\nпока никого/.test(r2) && r2.includes("🥇 Рус — 3\n🥈 Ruslan — 1"), "/mvp: новый сезон пуст, всё время на месте", r2);
 
     await win(3, "Ruslan");
     t.ok(season("Ruslan") === 1 && t.mvpCount("Ruslan") === 2, "в новом сезоне счёт идёт с нуля, общий растёт");
