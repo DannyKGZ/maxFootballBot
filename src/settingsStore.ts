@@ -65,6 +65,30 @@ export function setGameSlots(chatId: number, slots: GameSlot[] | null): void {
   else db().prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(`game_slots:${chatId}`, JSON.stringify(slots));
 }
 
+// ---- Настройки чата: манишки вкл/выкл, когда напоминать об оплате ----
+
+export interface ChatOptions {
+  maniska: boolean; // манишкаНосец и кнопка «Кто забрал манишки?»
+  paymentBefore: number; // напоминания об оплате каждый час за N ч до игры (0 — нет)
+  paymentAfter: number; // и N ч после игры
+}
+
+export function getChatOptions(chatId: number): ChatOptions {
+  const row = db().prepare("SELECT value FROM meta WHERE key = ?").get(`chat_opts:${chatId}`) as { value: string } | undefined;
+  const saved = row ? (JSON.parse(row.value) as Partial<ChatOptions>) : {};
+  return { maniska: true, paymentBefore: config.paymentHoursBefore, paymentAfter: config.paymentHoursAfter, ...saved };
+}
+
+export function setChatOptions(chatId: number, patch: Partial<ChatOptions> | null): void {
+  if (!patch) {
+    db().prepare("DELETE FROM meta WHERE key = ?").run(`chat_opts:${chatId}`);
+    return;
+  }
+  const row = db().prepare("SELECT value FROM meta WHERE key = ?").get(`chat_opts:${chatId}`) as { value: string } | undefined;
+  const merged = { ...(row ? (JSON.parse(row.value) as Partial<ChatOptions>) : {}), ...patch };
+  db().prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(`chat_opts:${chatId}`, JSON.stringify(merged));
+}
+
 // ---- Роли: легенда и манишкаНосец (/легенда, /манишкаНосец) ----
 
 export type RoleKind = "legend" | "maniska";
@@ -106,6 +130,7 @@ export function getRole(chatId: number, kind: RoleKind, now = Date.now()): RoleH
   if (!row) return null;
   const holder = JSON.parse(row.value) as RoleHolder;
   if (kind === "legend" && now >= LEGEND_TERM_MS(holder.since)) return null;
+  if (kind === "maniska" && !getChatOptions(chatId).maniska) return null; // манишки в этом чате выключены
   return holder;
 }
 

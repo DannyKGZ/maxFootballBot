@@ -12,7 +12,7 @@ import { dmTarget } from "./dmTarget";
 import * as draft from "./draftLogic";
 import { DESCRIPTION_RE, handleDescriptionAndReply } from "./descriptionLogic";
 import { GAMES_RE, gamesCommand } from "./gameSlotsLogic";
-import { LIMIT_RE, PAYMENT_RE, limitCommand, paymentCommand } from "./paymentLogic";
+import { LIMIT_RE, PAYMENT_RE, REMINDERS_RE, limitCommand, paymentCommand, remindersCommand } from "./paymentLogic";
 import * as scheduleLogic from "./scheduleLogic";
 import * as voteLogic from "./voteLogic";
 import { MaxUpdate } from "./types";
@@ -130,6 +130,11 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
       return;
     }
     // /лимит в личке — размер основы выбранного чата, ответ сюда же.
+    const remDm = text.match(REMINDERS_RE);
+    if (remDm) {
+      await api.sendMessageToChat(chatId, { text: await remindersCommand(target, userId, remDm[2]) });
+      return;
+    }
     const limitDm = text.match(LIMIT_RE);
     if (limitDm) {
       await api.sendMessageToChat(chatId, { text: await limitCommand(target, userId, limitDm[2]) });
@@ -244,6 +249,11 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
   }
 
   // 1.45b) /лимит — сколько человек в основе (только админ).
+  const rem = text.match(REMINDERS_RE);
+  if (rem) {
+    await api.sendMessageToChat(chatId, { text: await remindersCommand(chatId, userId, rem[2]) });
+    return;
+  }
   const limit = text.match(LIMIT_RE);
   if (limit) {
     await api.sendMessageToChat(chatId, { text: await limitCommand(chatId, userId, limit[2]) });
@@ -311,7 +321,7 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
 // Все команды бота — для подсказки, если команду написали с ошибкой.
 const KNOWN_COMMANDS = [
   "статус", "голос", "имя", "mvp", "мвп", "help", "инструкция", "помощь", "составы",
-  "старт", "закрыть", "описание", "расписание", "игры", "оплата", "лимит", "легенда", "манишканосец", "манишки", "голосование", "итоги", "объединить",
+  "старт", "закрыть", "описание", "расписание", "игры", "оплата", "лимит", "напоминания", "легенда", "манишканосец", "манишки", "голосование", "итоги", "объединить",
   "удалить", "переименовать", "заменить", "поменять", "дележка", "всем", "мвпСезонныйСброс", "мвпОбщийСброс",
 ];
 

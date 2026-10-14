@@ -1,3 +1,4 @@
+import { getChatOptions } from "./settingsStore";
 import { config, isManagedChat } from "./config";
 import * as api from "./maxApi";
 import { buildPaymentText, buildReminderText } from "./messageFormatter";
@@ -31,10 +32,11 @@ function slotsFor(session: FootballSession): Slot[] {
   if (config.reminderHoursBefore > 0) {
     slots.push({ key: "reminder", at: game - config.reminderHoursBefore * HOUR, kind: "reminder", hours: config.reminderHoursBefore });
   }
-  for (let h = config.paymentHoursBefore; h >= 1; h--) {
+  const opts = getChatOptions(session.chatId); // у каждого чата своё: /напоминания
+  for (let h = opts.paymentBefore; h >= 1; h--) {
     slots.push({ key: `pay-${h}`, at: game - h * HOUR, kind: "payment", phase: "before", hours: h });
   }
-  for (let h = 1; h <= config.paymentHoursAfter; h++) {
+  for (let h = 1; h <= opts.paymentAfter; h++) {
     slots.push({ key: `pay+${h}`, at: game + h * HOUR, kind: "payment", phase: "after", hours: h });
   }
   return slots;

@@ -1,4 +1,4 @@
-import { getMaxPlayers, getPayment } from "./settingsStore";
+import { getChatOptions, getMaxPlayers, getPayment } from "./settingsStore";
 import { config } from "./config";
 import { currentScheduleText } from "./scheduleLogic";
 import { getSession, getVoteSession } from "./store";
@@ -42,13 +42,13 @@ function reminders(chatId: number): Block {
   if (config.reminderHoursBefore > 0) {
     out.push(`⏰ За ${config.reminderHoursBefore} ч до игры бот напомнит в чате, сколько людей в основе и резерве.`);
   }
-  if (config.paymentHoursBefore > 0 || config.paymentHoursAfter > 0) {
-    out.push(
-      `💰 Оплата: ${payment.amount} ₽ с игрока основы на ${payment.details}. Бот напомнит и отметит вас` +
-        (config.paymentHoursBefore > 0 ? ` каждый час за ${config.paymentHoursBefore} ч до игры` : "") +
-        (config.paymentHoursAfter > 0 ? ` и ${config.paymentHoursAfter} ч после` : "") +
-        ".",
-    );
+  const opts = getChatOptions(chatId);
+  if (opts.paymentBefore > 0 || opts.paymentAfter > 0) {
+    const parts = [
+      opts.paymentBefore > 0 ? `каждый час за ${opts.paymentBefore} ч до игры` : "",
+      opts.paymentAfter > 0 ? `${opts.paymentBefore > 0 ? "и " : ""}${opts.paymentAfter} ч после игры (каждый час)` : "",
+    ].filter(Boolean);
+    out.push(`💰 Оплата: ${payment.amount} ₽ с игрока основы на ${payment.details}. Бот напомнит и отметит вас ${parts.join(" ")}.`);
   }
   return out;
 }
@@ -124,6 +124,8 @@ function adminHelpBlocks(groupChatId: number, userId: number): Block[] {
       "• /описание — показать шапку; /описание сброс — стандартная шапка",
       "• /легенда (кнопка «🏆 Легенда») — выбрать легенду: всегда 1-й в каждой записи с пометкой «Легенда 🏆🏅⚽», ровно год; /легенда сброс — снять",
     "• /манишкаНосец (кнопка «👕 МанишкаНосец») — у кого манишки: всегда 2-й в записи; после игры игрок может отметиться сам кнопкой «👕 Я забрал манишки»; /манишкаНосец сброс — снять",
+    "• /напоминания 0 2 — напоминать об оплате 0 ч до игры и 2 раза после; /напоминания — показать, /напоминания сброс — из .env",
+    "• /манишкаНосец выкл / вкл — выключить или включить манишки в этом чате",
     "• /лимит 15 — сколько человек в основе (дальше резерв); /лимит — показать, /лимит сброс — из .env",
       "• /оплата 350 Т-банк 89990000000 Имя — сумма с игрока и реквизиты этого чата; /оплата — показать, /оплата сброс — из .env",
       "• /игры Пн 12:00 Ср 21:20, Чт 12:00 Вс 20:20 — у каждой игры свой день публикации и своё время (вместо /расписание); /игры — показать, /игры сброс — обычное расписание",

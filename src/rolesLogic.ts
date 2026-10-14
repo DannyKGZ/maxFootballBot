@@ -2,7 +2,7 @@ import * as api from "./maxApi";
 import { InlineKeyboardAttachment, KeyboardButton } from "./maxApi";
 import { db } from "./db";
 import { applyRoleChange, isChatAdmin } from "./sessionLogic";
-import { RoleHolder, RoleKind, getNickname, getRole, isRoleHolderEntry, legendUntil, setRole } from "./settingsStore";
+import { RoleHolder, RoleKind, getChatOptions, getNickname, getRole, isRoleHolderEntry, legendUntil, setChatOptions, setRole } from "./settingsStore";
 import { getArchivedSession, getSession } from "./store";
 import { ButtonAction, FootballSession, MaxChatMember, Player } from "./types";
 import { fullName } from "./messageFormatter";
@@ -155,6 +155,16 @@ export async function roleCommand(
   const userId = sender.user_id;
   if (!(await isChatAdmin(groupChatId, userId))) return NOT_ADMIN;
   const text = arg?.trim() ?? "";
+  if (kind === "maniska" && /^(выкл|выключить|off|вкл|включить|on)$/i.test(text)) {
+    const on = /^(вкл|включить|on)$/i.test(text);
+    const before = getRole(groupChatId, "maniska");
+    setChatOptions(groupChatId, { maniska: on });
+    await applyRoleChange(groupChatId, "maniska", before); // выключили — убрать манишкаНосца из открытой записи
+    return on
+      ? "👕 Манишки включены: манишкаНосец снова записывается 2-м, после игры — кнопка «Кто забрал манишки?»."
+      : "👕 Манишки в этом чате выключены: манишкаНосца бот не записывает, кнопки после игры нет. Включить: /манишкаНосец вкл";
+  }
+  if (kind === "maniska" && !getChatOptions(groupChatId).maniska) return "👕 Манишки в этом чате выключены. Включить: /манишкаНосец вкл";
   if (/^(сброс|снять|reset)$/i.test(text)) {
     await assign(groupChatId, kind, null);
     return `${TITLE[kind]}: роль снята.`;
@@ -222,6 +232,7 @@ function promptView(chatId: number, p: ManiskaPrompt): { text: string; attachmen
 
 /** После игры (вместе с голосованием за MVP): кнопка для манишкаНосца. */
 export async function postManiskaPrompt(game: FootballSession): Promise<void> {
+  if (!getChatOptions(game.chatId).maniska) return; // манишки в этом чате выключены
   const prompt: ManiskaPrompt = { messageId: "", eligible: [...new Set(game.players.filter((p) => !p.isReserve).map((p) => p.userId))] };
   const res = await api.sendMessageToChat(game.chatId, promptView(game.chatId, prompt));
   prompt.messageId = res.message.body.mid;

@@ -1,5 +1,5 @@
 import { applyMaxPlayers, isChatAdmin } from "./sessionLogic";
-import { getMaxPlayers, getPayment, hasOwnPayment, setMaxPlayers, setPayment } from "./settingsStore";
+import { getChatOptions, getMaxPlayers, getPayment, hasOwnPayment, setChatOptions, setMaxPlayers, setPayment } from "./settingsStore";
 
 /**
  * /оплата (только админ) — сумма с игрока и реквизиты этого чата для напоминаний об оплате:
@@ -50,4 +50,34 @@ export async function limitCommand(groupChatId: number, userId: number, arg?: st
   }
   await applyMaxPlayers(groupChatId);
   return `✅ В основе теперь ${getMaxPlayers(groupChatId)} человек, дальше — резерв. Текущий список пересчитан.`;
+}
+
+/**
+ * /напоминания (только админ) — когда этот чат напоминает об оплате:
+ *   /напоминания 0 2 — до игры ни разу, после игры через 1 и 2 часа.
+ * /напоминания сброс — как в .env (PAYMENT_HOURS_BEFORE / PAYMENT_HOURS_AFTER).
+ */
+export const REMINDERS_RE = /^\/(напоминания|reminders)(?:\s+([\s\S]+))?$/i;
+
+function remindersText(chatId: number): string {
+  const o = getChatOptions(chatId);
+  const before = o.paymentBefore > 0 ? `каждый час за ${o.paymentBefore} ч до игры` : "до игры — нет";
+  const n = o.paymentAfter;
+  const after = n > 0 ? `после игры — ${n} ${n % 10 >= 2 && n % 10 <= 4 && (n < 12 || n > 14) ? "раза" : "раз"} (каждый час)` : "после игры — нет";
+  return `Напоминания об оплате: ${before}; ${after}.`;
+}
+
+export async function remindersCommand(groupChatId: number, userId: number, arg?: string): Promise<string> {
+  if (!(await isChatAdmin(groupChatId, userId))) return "Эта команда доступна только администраторам чата.";
+  const text = arg?.trim();
+  const help = "Изменить: /напоминания <часов до игры> <часов после игры>, например /напоминания 0 2. /напоминания сброс — как в .env.";
+  if (!text) return `${remindersText(groupChatId)}\n${help}`;
+  if (/^(сброс|reset)$/i.test(text)) {
+    setChatOptions(groupChatId, { paymentBefore: undefined, paymentAfter: undefined });
+    return `♻️ ${remindersText(groupChatId)}`;
+  }
+  const m = text.match(/^(\d{1,2})\s+(\d{1,2})$/);
+  if (!m || Number(m[1]) > 12 || Number(m[2]) > 12) return `Не понял. ${help}`;
+  setChatOptions(groupChatId, { paymentBefore: Number(m[1]), paymentAfter: Number(m[2]) });
+  return `✅ ${remindersText(groupChatId)}`;
 }
