@@ -1,4 +1,5 @@
 import { getChatOptions } from "./settingsStore";
+import { buildLedgerText, ensureLedger, receiptsEnabled, setLedgerMessage } from "./paymentLedger";
 import { config, isManagedChat } from "./config";
 import * as api from "./maxApi";
 import { buildPaymentText, buildReminderText } from "./messageFormatter";
@@ -72,15 +73,19 @@ async function notifySession(session: FootballSession, now: number, save: (s: Fo
         await api.sendMessageToChat(session.chatId, { text: buildReminderText(session) });
         continue;
       }
+      // Чат с проверкой чеков: живой список оплаты, упоминаются только те, кто ничего не прислал.
+      const ledger = receiptsEnabled(session.chatId);
+      if (ledger && !ensureLedger(session).some((r) => r.status === "unpaid")) continue; // все оплатили или прислали чек
       if (session.paymentMessageId) {
         // Прошлое напоминание об оплате заменяем новым, чтобы не копились.
         await api.deleteMessage(session.chatId, session.paymentMessageId).catch(() => undefined);
       }
       const res = await api.sendMessageToChat(session.chatId, {
-        text: buildPaymentText(session, slot.phase!, slot.hours),
+        text: ledger ? buildLedgerText(session.chatId, session.date, slot.phase === "after") : buildPaymentText(session, slot.phase!, slot.hours),
         format: "html",
       });
       session.paymentMessageId = res.message.body.mid;
+      if (ledger) setLedgerMessage(session.chatId, session.date, res.message.body.mid, slot.phase === "after");
       save(session);
     } catch (err) {
       console.error(`[notifications] не удалось отправить «${slot.key}» в чат ${session.chatId}:`, err);

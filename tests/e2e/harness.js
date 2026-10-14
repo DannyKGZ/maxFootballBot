@@ -118,6 +118,13 @@ function startMock() {
         const next = from + size < state.members.length ? from + size : null;
         return send(res, { members: page, marker: next });
       }
+      if (req.method === "GET" && p.startsWith("/files/")) {
+        // Вложения (PDF-чеки) — отдаём из tests/e2e/fixtures.
+        const file = path.join(__dirname, "fixtures", path.basename(p));
+        if (!fs.existsSync(file)) return send(res, { error: "not found" }, 404);
+        res.writeHead(200, { "content-type": "application/pdf" });
+        return res.end(fs.readFileSync(file));
+      }
       if (req.method === "GET" && p === "/updates") {
         // marker = сколько событий клиент уже получил; ждём новые до timeout секунд
         const from = Number(u.searchParams.get("marker") || 0);
@@ -302,6 +309,18 @@ class Harness {
       callback: { callback_id: "c" + ts, payload: btn.payload, user: this.sender(uid) },
       message: { recipient: this.recipient(uid, dm, chat), body: { mid: msg.mid } },
     });
+    await this.idle();
+  }
+
+  /** Пользователь присылает боту в личку файл (PDF из tests/e2e/fixtures) или фото. */
+  async sendFile(uid, name, type = "file") {
+    const u = this.messageUpdate(uid, "", true);
+    u.message.body.attachments = [
+      type === "file"
+        ? { type: "file", filename: name, payload: { url: `http://127.0.0.1:${this.mock.port}/files/${name}`, token: `tok-${name}` } }
+        : { type: "image", payload: { url: `http://127.0.0.1:${this.mock.port}/files/${name}`, token: "img" } },
+    ];
+    await this.post(u);
     await this.idle();
   }
 

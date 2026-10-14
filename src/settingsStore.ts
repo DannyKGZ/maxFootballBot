@@ -71,6 +71,8 @@ export interface ChatOptions {
   maniska: boolean; // манишкаНосец и кнопка «Кто забрал манишки?»
   paymentBefore: number; // напоминания об оплате каждый час за N ч до игры (0 — нет)
   paymentAfter: number; // и N ч после игры
+  // Проверка PDF-чеков об оплате (учёт оплаты, /должники): куда должны переводить.
+  receipts?: { phone: string; recipient: string };
 }
 
 export function getChatOptions(chatId: number): ChatOptions {

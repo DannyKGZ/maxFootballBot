@@ -12,7 +12,19 @@ import { dmTarget } from "./dmTarget";
 import * as draft from "./draftLogic";
 import { DESCRIPTION_RE, handleDescriptionAndReply } from "./descriptionLogic";
 import { GAMES_RE, gamesCommand } from "./gameSlotsLogic";
-import { LIMIT_RE, PAYMENT_RE, REMINDERS_RE, limitCommand, paymentCommand, remindersCommand } from "./paymentLogic";
+import {
+  DEBTORS_RE,
+  LIMIT_RE,
+  PAID_RE,
+  PAYMENT_RE,
+  REMINDERS_RE,
+  debtorsCommand,
+  limitCommand,
+  paidCommand,
+  paymentCommand,
+  remindersCommand,
+} from "./paymentLogic";
+import * as receipts from "./receiptLogic";
 import * as scheduleLogic from "./scheduleLogic";
 import * as voteLogic from "./voteLogic";
 import { MaxUpdate } from "./types";
@@ -60,6 +72,14 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
 
   // Новое сообщение в группе (и фото/стикер без текста) — дележку/голосование опустим вниз (stickyLogic.ts).
   if (chatId && message.recipient?.chat_type !== "dialog") noteChatActivity(chatId);
+
+  // Файл/фото боту в личку — PDF-чек об оплате (receiptLogic.ts).
+  // Стикеры и прочее не считаем — только файл, фото или видео (подпись к файлу не важна).
+  const files = (message.body?.attachments ?? []).filter((a) => ["file", "image", "video"].includes((a as { type?: string }).type ?? ""));
+  if (chatId && userId && message.recipient?.chat_type === "dialog" && files.length) {
+    await receipts.handleDmAttachments(chatId, message.sender, files);
+    return;
+  }
 
   if (!chatId || !userId || !text) {
     console.log(
@@ -130,6 +150,13 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
       return;
     }
     // /лимит в личке — размер основы выбранного чата, ответ сюда же.
+    // /должники, /оплатил в личке — по выбранному чату, ответ сюда же.
+    for (const [re, run] of [[DEBTORS_RE, debtorsCommand], [PAID_RE, paidCommand]] as const) {
+      const m = text.match(re);
+      if (!m) continue;
+      await api.sendMessageToChat(chatId, { text: await run(target, userId, m[2]) });
+      return;
+    }
     const remDm = text.match(REMINDERS_RE);
     if (remDm) {
       await api.sendMessageToChat(chatId, { text: await remindersCommand(target, userId, remDm[2]) });
@@ -249,6 +276,13 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
   }
 
   // 1.45b) /лимит — сколько человек в основе (только админ).
+  // /должники, /оплатил — учёт оплаты (только админ).
+  for (const [re, run] of [[DEBTORS_RE, debtorsCommand], [PAID_RE, paidCommand]] as const) {
+    const m = text.match(re);
+    if (!m) continue;
+    await api.sendMessageToChat(chatId, { text: await run(chatId, userId, m[2]) });
+    return;
+  }
   const rem = text.match(REMINDERS_RE);
   if (rem) {
     await api.sendMessageToChat(chatId, { text: await remindersCommand(chatId, userId, rem[2]) });
@@ -321,7 +355,7 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
 // Все команды бота — для подсказки, если команду написали с ошибкой.
 const KNOWN_COMMANDS = [
   "статус", "голос", "имя", "mvp", "мвп", "help", "инструкция", "помощь", "составы",
-  "старт", "закрыть", "описание", "расписание", "игры", "оплата", "лимит", "напоминания", "легенда", "манишканосец", "манишки", "голосование", "итоги", "объединить",
+  "старт", "закрыть", "описание", "расписание", "игры", "оплата", "лимит", "напоминания", "должники", "оплатил", "легенда", "манишканосец", "манишки", "голосование", "итоги", "объединить",
   "удалить", "переименовать", "заменить", "поменять", "дележка", "всем", "мвпСезонныйСброс", "мвпОбщийСброс",
 ];
 
@@ -365,6 +399,13 @@ async function handleMessageCallback(update: MaxUpdate): Promise<void> {
 
   if (!action) {
     await api.answerCallback(chatId, callback.callback_id, { notification: "Готово" });
+    return;
+  }
+
+  // Личка после PDF-чека: «за кого ещё оплатил».
+  if (message?.recipient?.chat_type === "dialog" && receipts.isReceiptAction(action)) {
+    const notification = await receipts.handleReceiptAction(chatId, pressedByUserId, action, message.body?.mid);
+    await api.answerCallback(chatId, callback.callback_id, { notification });
     return;
   }
 

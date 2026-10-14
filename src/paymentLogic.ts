@@ -1,3 +1,4 @@
+import { debtorLine, debtors, getRow, parseMonth, receiptsEnabled, refreshLedgerMessage, shortDate, updateRow } from "./paymentLedger";
 import { applyMaxPlayers, isChatAdmin } from "./sessionLogic";
 import { getChatOptions, getMaxPlayers, getPayment, hasOwnPayment, setChatOptions, setMaxPlayers, setPayment } from "./settingsStore";
 
@@ -80,4 +81,56 @@ export async function remindersCommand(groupChatId: number, userId: number, arg?
   if (!m || Number(m[1]) > 12 || Number(m[2]) > 12) return `Не понял. ${help}`;
   setChatOptions(groupChatId, { paymentBefore: Number(m[1]), paymentAfter: Number(m[2]) });
   return `✅ ${remindersText(groupChatId)}`;
+}
+
+// ---- Учёт оплаты: /должники и /оплатил (только админ, чаты с проверкой чеков) ----
+
+export const DEBTORS_RE = /^\/(должники|debtors)(?:\s+([\s\S]+))?$/i;
+export const PAID_RE = /^\/(оплатил|paid)(?:\s+([\s\S]+))?$/i;
+
+// Последний показанный админу список /должники — чтобы номера в /оплатил совпадали с ним.
+const lastShown = new Map<string, { rows: number[]; arg?: string }>();
+const shownKey = (chatId: number, userId: number) => `${chatId}:${userId}`;
+
+export async function debtorsCommand(groupChatId: number, userId: number, arg?: string): Promise<string> {
+  if (!(await isChatAdmin(groupChatId, userId))) return "Эта команда доступна только администраторам чата.";
+  if (!receiptsEnabled(groupChatId)) return "В этом чате учёт оплаты (проверка чеков) не включён.";
+  const period = parseMonth(arg);
+  if (period === null) return "Не понял месяц. Примеры: /должники, /должники 9, /должники сентябрь, /должники все.";
+  const rows = debtors(groupChatId, period);
+  lastShown.set(shownKey(groupChatId, userId), { rows: rows.map((r) => r.id), arg });
+  const title = period === "all" ? "все месяцы" : period.label;
+  if (!rows.length) return `💰 Должников нет (${title}) 👍`;
+  const sum = rows.reduce((n, r) => n + r.due - r.paid, 0);
+  return [
+    `💰 Должники — ${title}: ${rows.length}, на ${sum} ₽`,
+    "",
+    ...rows.map(debtorLine),
+    "",
+    "Отметить оплату: /оплатил <номер>, например /оплатил 1",
+  ].join("\n");
+}
+
+export async function paidCommand(groupChatId: number, userId: number, arg?: string): Promise<string> {
+  if (!(await isChatAdmin(groupChatId, userId))) return "Эта команда доступна только администраторам чата.";
+  if (!receiptsEnabled(groupChatId)) return "В этом чате учёт оплаты (проверка чеков) не включён.";
+  const nums = (arg ?? "").split(/[\s,]+/).filter(Boolean).map(Number);
+  if (!nums.length || nums.some((n) => !Number.isInteger(n) || n < 1)) return "Укажите номер из /должники, например: /оплатил 5 (можно несколько: /оплатил 2 5)";
+  const shown = lastShown.get(shownKey(groupChatId, userId));
+  const ids = shown?.rows ?? debtors(groupChatId, parseMonth(undefined)).map((r) => r.id);
+  const done: string[] = [];
+  const games = new Set<string>();
+  for (const n of nums) {
+    const row = ids[n - 1] !== undefined ? getRow(ids[n - 1]) : undefined;
+    if (!row || row.chat_id !== groupChatId) return `Нет номера ${n} в списке — посмотрите /должники.`;
+    if (row.status === "paid" || row.status === "manual") {
+      done.push(`${row.payer_name} — уже отмечен`);
+      continue;
+    }
+    updateRow(row.id, { status: "manual", paid: row.due, note: "отметил админ" });
+    games.add(row.game_date);
+    done.push(`${row.payer_name} (${row.payer_profile}) — ${row.due} ₽ за ${shortDate(row.game_date)}`);
+  }
+  for (const g of games) await refreshLedgerMessage(groupChatId, g);
+  return `✅ Отмечено как оплачено:\n${done.join("\n")}\nБольше напоминать не буду. Номера в /должники обновились — посмотрите список заново.`;
 }

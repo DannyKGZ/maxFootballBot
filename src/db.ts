@@ -48,6 +48,19 @@ CREATE TABLE IF NOT EXISTS chat_schedule (
   chat_id INTEGER PRIMARY KEY, cron TEXT NOT NULL, days TEXT NOT NULL, time TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS nicknames (user_id INTEGER PRIMARY KEY, name TEXT NOT NULL); -- своё имя в списке (/имя)
+-- Учёт оплаты игры (чаты с проверкой чеков): строка на каждого, кто записывал игроков основы.
+CREATE TABLE IF NOT EXISTS payments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  chat_id INTEGER NOT NULL, game_date TEXT NOT NULL, payer_id INTEGER NOT NULL,
+  payer_name TEXT NOT NULL, payer_profile TEXT NOT NULL,
+  players TEXT NOT NULL,                       -- JSON: за кого платит (имена)
+  due INTEGER NOT NULL,                        -- сколько должен, ₽
+  paid INTEGER NOT NULL DEFAULT 0,             -- сколько подтверждено, ₽
+  status TEXT NOT NULL DEFAULT 'unpaid',       -- unpaid | paid | review | wrong_file | manual
+  note TEXT, updated_at INTEGER,
+  UNIQUE (chat_id, game_date, payer_id)
+);
+CREATE TABLE IF NOT EXISTS receipts (hash TEXT PRIMARY KEY, chat_id INTEGER NOT NULL, payer_id INTEGER NOT NULL, at INTEGER NOT NULL);
 `;
 
 let instance: Database.Database | null = null;
