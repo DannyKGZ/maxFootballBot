@@ -27,7 +27,7 @@ async function statusText(group: number): Promise<string> {
   const vote = getVoteSession(group);
   const signup = session ? `идёт, записано ${session.players.length}` : "нет";
   const voting = vote ? `идёт, голосов ${vote.votes.length}` : "нет";
-  return `⚙️ Панель администратора — ${await chatTitle(group)}\nЗапись: ${signup}\nГолосование: ${voting}\n\nДействия выполняются в этом чате.`;
+  return `⚙️ Панель администратора — ${await chatTitle(group)}\nЗапись: ${signup}\nГолосование: ${voting}`;
 }
 
 /** Показывает панель в личке; не-админу — отказ. */

@@ -1,3 +1,4 @@
+import { NOT_ADMIN } from "./format";
 import { debtorLine, debtors, getRow, parseMonth, receiptsEnabled, refreshLedgerMessage, shortDate, updateRow } from "./paymentLedger";
 import { applyMaxPlayers, isChatAdmin } from "./sessionLogic";
 import { getChatOptions, getMaxPlayers, getPayment, hasOwnPayment, setChatOptions, setMaxPlayers, setPayment } from "./settingsStore";
@@ -13,7 +14,7 @@ const HELP = "Формат: /оплата <сумма с игрока> <рекв
 
 /** Текст ответа админу. `groupChatId` — чат, чью оплату настраиваем (команда может прийти из лички). */
 export async function paymentCommand(groupChatId: number, userId: number, arg?: string): Promise<string> {
-  if (!(await isChatAdmin(groupChatId, userId))) return "Эта команда доступна только администраторам чата.";
+  if (!(await isChatAdmin(groupChatId, userId))) return NOT_ADMIN;
   const text = arg?.trim();
   if (!text) {
     const p = getPayment(groupChatId);
@@ -29,7 +30,7 @@ export async function paymentCommand(groupChatId: number, userId: number, arg?: 
   const details = m[2].trim();
   if (details.length > 300) return "Слишком длинные реквизиты — не больше 300 символов.";
   setPayment(groupChatId, { amount: Number(m[1]), details });
-  return `✅ Оплата этого чата: ${m[1]} ₽ с игрока на ${details}. Так будет в напоминаниях об оплате.`;
+  return `✅ Оплата этого чата: ${m[1]} ₽ с игрока на ${details}.`;
 }
 
 /**
@@ -40,7 +41,7 @@ export async function paymentCommand(groupChatId: number, userId: number, arg?: 
 export const LIMIT_RE = /^\/(лимит|limit)(?:\s+([\s\S]+))?$/i;
 
 export async function limitCommand(groupChatId: number, userId: number, arg?: string): Promise<string> {
-  if (!(await isChatAdmin(groupChatId, userId))) return "Эта команда доступна только администраторам чата.";
+  if (!(await isChatAdmin(groupChatId, userId))) return NOT_ADMIN;
   const text = arg?.trim();
   if (!text) return `Сейчас в основе ${getMaxPlayers(groupChatId)} человек, дальше резерв.\nИзменить: /лимит 15; /лимит сброс — из .env.`;
   if (/^(сброс|reset)$/i.test(text)) setMaxPlayers(groupChatId, null);
@@ -50,7 +51,7 @@ export async function limitCommand(groupChatId: number, userId: number, arg?: st
     setMaxPlayers(groupChatId, n);
   }
   await applyMaxPlayers(groupChatId);
-  return `✅ В основе теперь ${getMaxPlayers(groupChatId)} человек, дальше — резерв. Текущий список пересчитан.`;
+  return `✅ Основа: ${getMaxPlayers(groupChatId)}, дальше резерв. Список пересчитан.`;
 }
 
 /**
@@ -69,7 +70,7 @@ function remindersText(chatId: number): string {
 }
 
 export async function remindersCommand(groupChatId: number, userId: number, arg?: string): Promise<string> {
-  if (!(await isChatAdmin(groupChatId, userId))) return "Эта команда доступна только администраторам чата.";
+  if (!(await isChatAdmin(groupChatId, userId))) return NOT_ADMIN;
   const text = arg?.trim();
   const help = "Изменить: /напоминания <часов до игры> <часов после игры>, например /напоминания 0 2. /напоминания сброс — как в .env.";
   if (!text) return `${remindersText(groupChatId)}\n${help}`;
@@ -93,7 +94,7 @@ const lastShown = new Map<string, { rows: number[]; arg?: string }>();
 const shownKey = (chatId: number, userId: number) => `${chatId}:${userId}`;
 
 export async function debtorsCommand(groupChatId: number, userId: number, arg?: string): Promise<string> {
-  if (!(await isChatAdmin(groupChatId, userId))) return "Эта команда доступна только администраторам чата.";
+  if (!(await isChatAdmin(groupChatId, userId))) return NOT_ADMIN;
   if (!receiptsEnabled(groupChatId)) return "В этом чате учёт оплаты (проверка чеков) не включён.";
   const period = parseMonth(arg);
   if (period === null) return "Не понял месяц. Примеры: /должники, /должники 9, /должники сентябрь, /должники все.";
@@ -112,7 +113,7 @@ export async function debtorsCommand(groupChatId: number, userId: number, arg?: 
 }
 
 export async function paidCommand(groupChatId: number, userId: number, arg?: string): Promise<string> {
-  if (!(await isChatAdmin(groupChatId, userId))) return "Эта команда доступна только администраторам чата.";
+  if (!(await isChatAdmin(groupChatId, userId))) return NOT_ADMIN;
   if (!receiptsEnabled(groupChatId)) return "В этом чате учёт оплаты (проверка чеков) не включён.";
   const nums = (arg ?? "").split(/[\s,]+/).filter(Boolean).map(Number);
   if (!nums.length || nums.some((n) => !Number.isInteger(n) || n < 1)) return "Укажите номер из /должники, например: /оплатил 5 (можно несколько: /оплатил 2 5)";
@@ -132,5 +133,6 @@ export async function paidCommand(groupChatId: number, userId: number, arg?: str
     done.push(`${row.payer_name} (${row.payer_profile}) — ${row.due} ₽ за ${shortDate(row.game_date)}`);
   }
   for (const g of games) await refreshLedgerMessage(groupChatId, g);
-  return `✅ Отмечено как оплачено:\n${done.join("\n")}\nБольше напоминать не буду. Номера в /должники обновились — посмотрите список заново.`;
+  return `✅ Отмечено как оплачено:\n${done.join("\n")}
+Номера в /должники сдвинулись.`;
 }

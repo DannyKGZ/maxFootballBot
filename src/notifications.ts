@@ -81,11 +81,11 @@ async function notifySession(session: FootballSession, now: number, save: (s: Fo
         await api.deleteMessage(session.chatId, session.paymentMessageId).catch(() => undefined);
       }
       const res = await api.sendMessageToChat(session.chatId, {
-        text: ledger ? buildLedgerText(session.chatId, session.date, slot.phase === "after") : buildPaymentText(session, slot.phase!, slot.hours),
+        text: ledger ? buildLedgerText(session.chatId, session.date) : buildPaymentText(session, slot.phase!, slot.hours),
         format: "html",
       });
       session.paymentMessageId = res.message.body.mid;
-      if (ledger) setLedgerMessage(session.chatId, session.date, res.message.body.mid, slot.phase === "after");
+      if (ledger) setLedgerMessage(session.chatId, session.date, res.message.body.mid);
       save(session);
     } catch (err) {
       console.error(`[notifications] не удалось отправить «${slot.key}» в чат ${session.chatId}:`, err);

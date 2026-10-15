@@ -10,7 +10,7 @@ module.exports = {
     t.ok(t.lines(t.roster()).length === 4, "4 игрока, последний — резерв");
 
     await t.say(4, "/удалить 2");
-    t.ok(!!t.find(/только администраторам/) && t.lines(t.roster()).length === 4, "не-админ не может удалять чужих");
+    t.ok(!!t.find(/Только для админов/) && t.lines(t.roster()).length === 4, "не-админ не может удалять чужих");
 
     await t.say(1, "/удалить 2");
     t.ok(!!t.find(/Админ убрал из списка: Рома/) && !t.lines(t.roster()).some((l) => l.includes("Рома")), "/удалить 2 — убран второй");

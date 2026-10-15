@@ -1,3 +1,5 @@
+import { dateFull } from "./format";
+import { NOT_ADMIN } from "./format";
 import * as api from "./maxApi";
 import { InlineKeyboardAttachment, KeyboardButton } from "./maxApi";
 import { db } from "./db";
@@ -20,13 +22,11 @@ import { fullName } from "./messageFormatter";
 export const LEGEND_RE = /^\/(легенда|legend)(?:\s+([\s\S]+))?$/i;
 export const MANISKA_RE = /^\/(манишка\s*носец|манишканосец|манишки|манишка|maniska)(?:\s+([\s\S]+))?$/i;
 
-const NOT_ADMIN = "Эта команда доступна только администраторам чата.";
 const TITLE: Record<RoleKind, string> = { legend: "🏆 Легенда", maniska: "👕 манишкаНосец" };
 
 const btn = (text: string, action: ButtonAction): KeyboardButton => ({ type: "callback", text, payload: JSON.stringify(action) });
 const kb = (rows: KeyboardButton[][]): InlineKeyboardAttachment => ({ type: "inline_keyboard", payload: { buttons: rows } });
-const pad = (n: number) => String(n).padStart(2, "0");
-const fmtDate = (d: Date) => `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}`;
+const fmtDate = dateFull;
 
 function holderText(chatId: number, kind: RoleKind): string {
   const h = getRole(chatId, kind);
@@ -93,10 +93,10 @@ async function choiceView(groupChatId: number, kind: RoleKind, page = 0): Promis
       if (pg < pages - 1) nav.push(btn("Дальше ▶️", { a: "role_page", r: kind, pg: pg + 1 }));
       rows.push(nav);
     }
-    where = `участники чата (${members.length})`;
+    where = `участники чата, ${members.length}`;
   } else {
     const list = candidates(groupChatId);
-    if (!list.length) return `Выбрать не из кого — в записи пока никого. Можно указать имя: /${cmd} Володя. Сейчас ${TITLE[kind]} — ${holderText(groupChatId, kind)}.`;
+    if (!list.length) return `В записи никого. Укажите имя: /${cmd} Володя. Сейчас ${TITLE[kind]} — ${holderText(groupChatId, kind)}.`;
     rows = list.map((p) => [
       btn(`${isRoleHolderEntry(p, current) ? "✅ " : ""}${p.displayName}${p.profileName ? "" : ` (записывает ${p.addedByName ?? "друг"})`}`, {
         a: "role_pick",
@@ -105,16 +105,13 @@ async function choiceView(groupChatId: number, kind: RoleKind, page = 0): Promis
         ...(p.profileName ? {} : { n: p.displayName }),
       }),
     ]);
-    where = "записавшиеся на игру";
+    where = "записавшиеся";
   }
   if (current) rows.push([btn("✖️ Снять роль", { a: "role_off", r: kind })]);
   rows.push([btn("Отмена", { a: "role_cancel" })]);
-  const about =
-    kind === "legend"
-      ? "Легенда всегда записан 1-м в каждой записи — ровно год с назначения."
-      : "МанишкаНосец всегда записан 2-м (после легенды) в каждой записи.";
+  const about = kind === "legend" ? "Всегда 1-й в записи, на год." : "Всегда 2-й в записи.";
   return {
-    text: `${TITLE[kind]} — сейчас: ${holderText(groupChatId, kind)}.\n${about}\nВыберите игрока — ${where} (только админ). Нет в списке — напишите имя: /${cmd} Володя`,
+    text: `${TITLE[kind]} — сейчас: ${holderText(groupChatId, kind)}. ${about}\nВыберите (${where}) или /${cmd} Имя.`,
     attachments: [kb(rows)],
   };
 }
@@ -161,10 +158,10 @@ export async function roleCommand(
     setChatOptions(groupChatId, { maniska: on });
     await applyRoleChange(groupChatId, "maniska", before); // выключили — убрать манишкаНосца из открытой записи
     return on
-      ? "👕 Манишки включены: манишкаНосец снова записывается 2-м, после игры — кнопка «Кто забрал манишки?»."
-      : "👕 Манишки в этом чате выключены: манишкаНосца бот не записывает, кнопки после игры нет. Включить: /манишкаНосец вкл";
+      ? "👕 Манишки включены."
+      : "👕 Манишки выключены: манишкаНосец не записывается, кнопки после игры нет. Включить: /манишкаНосец вкл";
   }
-  if (kind === "maniska" && !getChatOptions(groupChatId).maniska) return "👕 Манишки в этом чате выключены. Включить: /манишкаНосец вкл";
+  if (kind === "maniska" && !getChatOptions(groupChatId).maniska) return "👕 Манишки выключены. Включить: /манишкаНосец вкл";
   if (/^(сброс|снять|reset)$/i.test(text)) {
     await assign(groupChatId, kind, null);
     return `${TITLE[kind]}: роль снята.`;
@@ -306,7 +303,7 @@ export async function handleRoleAction(
       }
       await assign(groupChatId, kind, holder);
       const done = holder
-        ? `✅ ${TITLE[kind]}: ${holderText(groupChatId, kind)}. ${kind === "legend" ? "Записан 1-м" : "Записан 2-м"} в текущей и следующих записях.`
+        ? `✅ ${TITLE[kind]}: ${holderText(groupChatId, kind)}. ${kind === "legend" ? "1-й" : "2-й"} в записи.`
         : `${TITLE[kind]}: роль снята.`;
       if (messageId) await api.editMessage(messageChatId, messageId, { text: done, attachments: [] }).catch(() => undefined);
       return holder ? `${TITLE[kind]} — ${holder.displayName}` : "Роль снята";
@@ -326,7 +323,7 @@ export async function handleRoleAction(
       p.takenBy = userId;
       await assign(groupChatId, "maniska", holder);
       await refreshPrompt(groupChatId, p);
-      return "👕 Вы забрали манишки — в следующую игру записаны вторым. Ошиблись — нажмите кнопку ещё раз";
+      return "👕 Манишки у вас — в следующей записи вы 2-й. Ошиблись — нажмите ещё раз";
     }
     case "mnk_undo": {
       const p = loadPrompt(groupChatId);
@@ -338,7 +335,7 @@ export async function handleRoleAction(
       delete p.previous;
       await assign(groupChatId, "maniska", previous);
       await refreshPrompt(groupChatId, p);
-      return "Вы отменили — манишки может забрать другой игрок";
+      return "Отменено";
     }
   }
   return "Готово";

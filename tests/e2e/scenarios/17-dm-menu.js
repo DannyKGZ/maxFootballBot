@@ -5,7 +5,7 @@ module.exports = {
   async run(t) {
     const USER_MENU = "➕ Записаться|➖ Убрать себя|📋 Статус|🏆 Рейтинг MVP|✏️ Изменить имя|ℹ️ Инструкция";
     await t.botStarted(4);
-    const menu = t.find(/^👋 Это бот записи/, dmOf(4));
+    const menu = t.find(/^👋 Бот записи/, dmOf(4));
     t.ok(!!menu && t.buttons(menu).join("|") === USER_MENU, "участник открыл бота — приветствие с кнопками", menu && t.buttons(menu));
     await t.click(4, menu, "➕ Записаться", { dm: true });
     t.ok(t.toast().includes("Сейчас записи нет"), "записи нет — понятное уведомление");
@@ -26,8 +26,8 @@ module.exports = {
     t.ok(!t.find(/Кого убрать из записи\?/, dmOf(4)), "вопрос в личке убран");
 
     await t.click(4, menu, "📋 Статус", { dm: true });
-    const st = t.find(/^📋 Статус записи/, dmOf(4));
-    t.ok(st && st.text.includes("Основа: 1 из") && t.buttons(st).join("|") === USER_MENU, "«Статус» — в личку, с кнопками меню");
+    const st = t.find(/^📋 (Игра |Записи нет)/, dmOf(4));
+    t.ok(st && st.text.includes("Основа 1/") && t.buttons(st).join("|") === USER_MENU, "«Статус» — в личку, с кнопками меню");
     await t.click(4, menu, "🏆 Рейтинг MVP", { dm: true });
     t.ok(!!t.find(/Рейтинг MVP/, dmOf(4)), "«Рейтинг MVP» — в личку");
     await t.click(4, menu, "ℹ️ Инструкция", { dm: true });

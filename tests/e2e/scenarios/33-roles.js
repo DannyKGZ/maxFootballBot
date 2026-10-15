@@ -10,7 +10,7 @@ module.exports = {
     for (const uid of [2, 3, 4, 5]) await t.say(uid, "+");
 
     await t.say(2, "/легенда");
-    t.ok(!!t.find(/только администраторам/), "назначает только админ");
+    t.ok(!!t.find(/Только для админов/), "назначает только админ");
     await t.say(1, "/легенда");
     const choice = t.find(/^🏆 Легенда — сейчас: никто/);
     t.ok(choice && t.buttons(choice).join("|") === "Админ|Влад Тюев|Пятый|Рома Власенко|Чужой|Шестой|Ruslan|Отмена", "легенда — из всех участников чата (без бота)", choice && t.buttons(choice));

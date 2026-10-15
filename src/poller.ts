@@ -1,4 +1,3 @@
-import { config } from "./config";
 import { db } from "./db";
 import { deleteSubscription, getSubscriptions, getUpdates } from "./maxApi";
 import { handleUpdate } from "./webhookServer";
@@ -85,5 +84,3 @@ export async function startPolling(): Promise<void> {
 export function stopPolling(): void {
   running = false;
 }
-
-export const pollingEnabled = () => config.updatesMode === "polling";

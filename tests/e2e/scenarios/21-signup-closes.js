@@ -17,7 +17,7 @@ module.exports = {
     await t.say(3, "+");
     t.ok(t.lines(t.roster()).length === 2, "до начала игры записываются");
     await t.say(4, "/статус");
-    t.ok(t.find(/^📋 Статус/).text.includes("✅ Запись открыта до начала игры"), "статус: запись открыта");
+    t.ok(t.find(/^📋 (Игра |Записи нет)/).text.includes("✅ Запись открыта, до игры"), "статус: запись открыта");
 
     await sleep(6500);
     await t.idle();
@@ -25,14 +25,14 @@ module.exports = {
     t.ok(r.text.includes("🔒 Запись закрыта — игра началась.") && r.attachments.length === 0, "в момент начала игры сообщение записи закрыто, кнопки сняты", r.text);
 
     await t.say(4, "+");
-    t.ok(t.lines(t.roster()).length === 2 && !!t.find(/закрыта — игра уже началась/), "«+» после начала — отказ, список не меняется");
+    t.ok(t.lines(t.roster()).length === 2 && !!t.find(/^🔒 Запись закрыта: игра .* началась/), "«+» после начала — отказ, список не меняется");
     await t.say(3, "-");
     t.ok(t.lines(t.roster()).length === 2, "«-» после начала тоже не меняет список");
     await t.botStarted(4);
     await t.click(4, t.find(/^👋/, dmOf(4)), "➕ Записаться", { dm: true });
     t.ok(t.toast().includes("Запись закрыта") && t.lines(t.roster()).length === 2, "кнопка «Записаться» в личке — отказ");
     await t.say(4, "/статус");
-    t.ok(t.find(/^📋 Статус/).text.includes("🔒 Запись закрыта — игра началась"), "статус: закрыта, игра началась");
+    t.ok(t.find(/^📋 (Игра |Записи нет)/).text.includes("🔒 Запись закрыта: игра идёт"), "статус: закрыта, игра идёт");
 
     await t.say(1, "/удалить 1");
     t.ok(t.lines(t.roster()).length === 1 && t.roster().attachments.length === 0, "админ может поправить состав и после начала (кнопки не возвращаются)");

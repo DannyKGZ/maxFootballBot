@@ -34,11 +34,6 @@ export function seasonOf(date: Date): GameSeason {
   return { name, gameYear, start: new Date(startYear, startMonth, 1), key: `${gameYear}-${name}` };
 }
 
-/** Начало игрового года: 1 декабря предыдущего календарного года. */
-export function gameYearStart(gameYear: number): Date {
-  return new Date(gameYear - 1, 11, 1);
-}
-
 export function seasonLabel(s: GameSeason): string {
   return `${s.name} ${s.name === "Зима" ? `${s.gameYear - 1}/${String(s.gameYear).slice(2)}` : s.gameYear}`;
 }

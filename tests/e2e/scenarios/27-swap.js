@@ -11,7 +11,7 @@ module.exports = {
     t.ok(t.lines(t.roster()).join("|") === "1. Ruslan|2. Рома|3. Влад (Резерв)", "исходный список");
 
     await t.say(4, "/поменять 1 на 3");
-    t.ok(!!t.find(/только администраторам/) && t.lines(t.roster())[0].startsWith("1. Ruslan"), "не-админ не может менять местами");
+    t.ok(!!t.find(/Только для админов/) && t.lines(t.roster())[0].startsWith("1. Ruslan"), "не-админ не может менять местами");
 
     await t.say(1, "/поменять 1 на 3");
     t.ok(t.lines(t.roster()).join("|") === "1. Влад|2. Рома|3. Ruslan (Резерв)", "резервист в основе, первый — в резерве", t.lines(t.roster()));

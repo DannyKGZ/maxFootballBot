@@ -1,9 +1,10 @@
+import { NOT_ADMIN } from "./format";
 import * as api from "./maxApi";
 import { InlineKeyboardAttachment, KeyboardButton } from "./maxApi";
 import { ensurePlayerIds, isChatAdmin, playerKey } from "./sessionLogic";
 import { getSession, setSession } from "./store";
 import { ButtonAction, Draft, FootballSession, Player } from "./types";
-import { escapeHtml, paymentDetailsLine, paymentPayerLines } from "./messageFormatter";
+import { escapeHtml, paymentDetailsLine, paymentHeader, paymentPayerLines } from "./messageFormatter";
 
 /**
  * Дележка на команды:
@@ -23,7 +24,6 @@ const TEAM_ICON = ["⚪", "⚫"];
 
 /** Очерёдность по одному: ⚪ ⚫ ⚪ ⚫ … — по номеру выбора (0, 1, 2, …) чья очередь. */
 export const turnForPick = (pickIndex: number): 0 | 1 => (pickIndex % 2 === 0 ? 0 : 1);
-const NOT_ADMIN = "Эта команда доступна только администраторам чата.";
 
 const btn = (text: string, action: ButtonAction): KeyboardButton => ({ type: "callback", text, payload: JSON.stringify(action) });
 const kb = (rows: KeyboardButton[][]): InlineKeyboardAttachment => ({ type: "inline_keyboard", payload: { buttons: rows } });
@@ -98,7 +98,8 @@ function render(s: FootballSession): { text: string; format?: "html"; attachment
       "",
       ...teamLines(s, d).map(escapeHtml),
       "",
-      `💰 ${paymentDetailsLine(s.chatId)}`,
+      paymentHeader(s.chatId, s.date),
+      paymentDetailsLine(s.chatId),
       ...paymentPayerLines(s),
     ].join("\n"),
     format: "html",

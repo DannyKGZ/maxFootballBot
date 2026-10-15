@@ -1,3 +1,4 @@
+import { dateFull } from "./format";
 import * as api from "./maxApi";
 import { fullName } from "./messageFormatter";
 import { GameSeason, SEASON_MONTHS, seasonLabel, seasonOf } from "./gameSeasons";
@@ -22,8 +23,7 @@ import {
  * При ничьей или если не удалось понять, чей это аккаунт, — легенду выбирает админ (/легенда).
  */
 
-const pad = (n: number) => String(n).padStart(2, "0");
-const fmtDate = (d: Date) => `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}`;
+const fmtDate = dateFull;
 
 /** Аккаунт победителя: из записи о его победах, иначе участник чата с таким именем (если он один). */
 async function holderFor(chatId: number, name: string): Promise<RoleHolder | null> {
@@ -43,13 +43,12 @@ async function holderFor(chatId: number, name: string): Promise<RoleHolder | nul
 /** Итоги игрового года → текст объявления (и назначение легенды года). */
 async function crownLegendOfYear(chatId: number, gameYear: number, rating: ReturnType<typeof getMvpRating>, start: Date): Promise<string> {
   const year = rating.filter((e) => e.year > 0).sort((a, b) => b.year - a.year);
-  if (!year.length) return `🏆 Игровой год ${gameYear} закончился — MVP за год не было, легенда года не выбрана.`;
+  if (!year.length) return `🏆 Год ${gameYear} закончился: MVP не было, легенды года нет.`;
   const top = year.filter((e) => e.year === year[0].year);
   const table = year.slice(0, 5).map((e, i) => `${["🥇", "🥈", "🥉"][i] ?? `${i + 1}.`} ${e.name} — ${e.year}`);
   if (top.length > 1) {
     return [
-      `🏆 Итоги игрового года ${gameYear}: больше всех MVP (по ${top[0].year}) у ${top.map((e) => e.name).join(", ")}.`,
-      "Легенду года выбирает админ: /легенда",
+      `🏆 Итоги года ${gameYear}: ничья — по ${top[0].year} MVP у ${top.map((e) => e.name).join(", ")}. Легенду выбирает админ: /легенда`,
       "",
       ...table,
     ].join("\n");
@@ -57,8 +56,7 @@ async function crownLegendOfYear(chatId: number, gameYear: number, rating: Retur
   const holder = await holderFor(chatId, top[0].name);
   if (!holder) {
     return [
-      `🏆 Легенда ${gameYear} года — ${top[0].name}: ${top[0].year} MVP за год!`,
-      `Не нашёл аккаунт игрока в чате — админ, назначьте легенду: /легенда ${top[0].name}`,
+      `🏆 Легенда ${gameYear} года — ${top[0].name} (${top[0].year} MVP). Аккаунт в чате не найден — админ: /легенда ${top[0].name}`,
       "",
       ...table,
     ].join("\n");
@@ -66,15 +64,14 @@ async function crownLegendOfYear(chatId: number, gameYear: number, rating: Retur
   holder.since = start.getTime(); // ровно год — с 1 декабря
   await assign(chatId, "legend", holder);
   return [
-    `🏆 Легенда ${gameYear} года — ${top[0].name}: ${top[0].year} MVP за игровой год! 🏆🏅⚽`,
-    `Теперь он всегда 1-й в каждой записи — до ${fmtDate(legendUntil(holder))}.`,
+    `🏆 Легенда ${gameYear} года — ${top[0].name} (${top[0].year} MVP)! 🏆🏅⚽ 1-й в каждой записи до ${fmtDate(legendUntil(holder))}.`,
     "",
     ...table,
   ].join("\n");
 }
 
 function seasonStartText(s: GameSeason): string {
-  return `🗓 Начался сезон «${seasonLabel(s)}» (${SEASON_MONTHS[s.name]}) — сезонный рейтинг MVP с нуля (/mvp).`;
+  return `🗓 Сезон «${seasonLabel(s)}» (${SEASON_MONTHS[s.name]}): сезонный рейтинг MVP обнулён.`;
 }
 
 /** Проверить смену сезона/года для чата; при смене — сбросить счёт и объявить. */

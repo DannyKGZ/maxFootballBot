@@ -1,3 +1,4 @@
+import { NOT_ADMIN } from "./format";
 import { config } from "./config";
 import * as scheduleLogic from "./scheduleLogic";
 import * as sessionLogic from "./sessionLogic";
@@ -41,7 +42,6 @@ export interface ActionResult {
   toast?: string;
 }
 
-const NOT_ADMIN = "Эта команда доступна только администраторам чата.";
 const deny = (text: string): ActionResult => ({ chat: text, toast: text });
 
 export async function start(chatId: number, userId: number): Promise<ActionResult> {
@@ -226,7 +226,7 @@ export async function sendHelp(groupChatId: number, userId: number): Promise<Act
       await api.sendMessageToUser(userId, { text });
       sent++;
     }
-    return { toast: "Инструкция отправлена вам в личный чат с ботом" };
+    return { toast: "Инструкция — в личке с ботом" };
   } catch (err) {
     console.error(`[actions] инструкция в личку: отправлено ${sent} из ${parts.length} частей —`, err);
     if (sent > 0) {
@@ -234,7 +234,7 @@ export async function sendHelp(groupChatId: number, userId: number): Promise<Act
       const partial = `Инструкция пришла не полностью (${sent} из ${parts.length}) — попробуйте ещё раз.`;
       return { toast: partial };
     }
-    const hint = "Чтобы получить инструкцию, откройте бота в личных сообщениях, нажмите «Начать» и повторите.";
+    const hint = "Откройте бота в личке, нажмите «Начать» и повторите.";
     return { toast: hint, chat: hint };
   }
 }

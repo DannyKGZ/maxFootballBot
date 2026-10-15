@@ -1,5 +1,5 @@
+import { NOT_ADMIN } from "./format";
 import { config } from "./config";
-import * as api from "./maxApi";
 import { DEFAULT_ROSTER_TEMPLATE, gameTimeOf, renderRosterTemplate, rosterTitle } from "./messageFormatter";
 import { isChatAdmin, refreshRoster } from "./sessionLogic";
 import { getRosterTemplate, setGameTime, setRosterTemplate } from "./settingsStore";
@@ -54,7 +54,7 @@ const HELP = [
 
 /** Возвращает текст ответа админу. Шаблон общий — действует на текущую и все следующие записи. */
 export async function handleDescription(groupChatId: number, userId: number, arg?: string): Promise<string> {
-  if (!(await isChatAdmin(groupChatId, userId))) return "Эта команда доступна только администраторам чата.";
+  if (!(await isChatAdmin(groupChatId, userId))) return NOT_ADMIN;
   const session = getSession(groupChatId);
   const text = arg?.trim();
 
@@ -98,15 +98,4 @@ export async function handleDescription(groupChatId: number, userId: number, arg
     lines.push("", "Сейчас запись выглядит так:", renderRosterTemplate(template, session));
   }
   return lines.join("\n");
-}
-
-/** Ответ админу — в тот чат, где он написал; меняется запись общего чата. */
-export async function handleDescriptionAndReply(
-  groupChatId: number,
-  replyChatId: number,
-  userId: number,
-  arg?: string,
-): Promise<void> {
-  const reply = await handleDescription(groupChatId, userId, arg);
-  await api.sendMessageToChat(replyChatId, { text: reply });
 }

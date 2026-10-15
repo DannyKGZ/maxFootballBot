@@ -1,6 +1,7 @@
+import { dateShort } from "./format";
 import { db } from "./db";
 import * as api from "./maxApi";
-import { escapeHtml, gameTimeOf, mention, paymentDetailsLine } from "./messageFormatter";
+import { escapeHtml, mention, paymentDetailsLine, paymentHeader } from "./messageFormatter";
 import { getChatOptions, getPayment } from "./settingsStore";
 import { FootballSession } from "./types";
 
@@ -30,12 +31,7 @@ export interface PaymentRow {
 
 export const receiptsEnabled = (chatId: number) => Boolean(getChatOptions(chatId).receipts);
 export const isSettled = (r: PaymentRow) => r.status === "paid" || r.status === "manual";
-const WEEKDAYS = ["Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"];
-const pad = (n: number) => String(n).padStart(2, "0");
-export const shortDate = (iso: string) => {
-  const d = new Date(iso);
-  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}`;
-};
+export const shortDate = (iso: string) => dateShort(new Date(iso));
 
 export function ledgerRows(chatId: number, gameDate: string): PaymentRow[] {
   return db().prepare("SELECT * FROM payments WHERE chat_id = ? AND game_date = ? ORDER BY id").all(chatId, gameDate) as PaymentRow[];
@@ -95,34 +91,31 @@ function rowLine(r: PaymentRow): string {
 }
 
 /** Сообщение «💰 Оплата» со списком (format: html). */
-export function buildLedgerText(chatId: number, gameDate: string, after: boolean): string {
+export function buildLedgerText(chatId: number, gameDate: string): string {
   const rows = ledgerRows(chatId, gameDate);
-  const date = new Date(gameDate);
-  const fakeSession = { chatId, date: gameDate } as FootballSession;
-  const done = rows.filter(isSettled).length;
   return [
-    `💰 Оплата за игру ${WEEKDAYS[date.getDay()]} ${shortDate(gameDate)}.${date.getFullYear()}, ${gameTimeOf(fakeSession)}${after ? " — игра прошла, не забудьте оплатить" : ""}`,
+    paymentHeader(chatId, gameDate),
     paymentDetailsLine(chatId),
-    "📄 После оплаты пришлите боту в личку <b>PDF-чек</b> из банка (откройте личный чат с ботом и прикрепите файл) — бот проверит и отметит вас.",
+    "📄 Чек — <b>PDF-файлом</b> боту в личку, бот отметит оплату.",
     "",
-    `Оплатили: ${done} из ${rows.length}`,
+    `Оплатили ${rows.filter(isSettled).length} из ${rows.length}:`,
     ...rows.map(rowLine),
   ].join("\n");
 }
 
 const msgKey = (chatId: number, gameDate: string) => `pay_msg:${chatId}:${gameDate}`;
 
-export function setLedgerMessage(chatId: number, gameDate: string, mid: string, after: boolean): void {
-  db().prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(msgKey(chatId, gameDate), JSON.stringify({ mid, after }));
+export function setLedgerMessage(chatId: number, gameDate: string, mid: string): void {
+  db().prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(msgKey(chatId, gameDate), JSON.stringify({ mid }));
 }
 
 /** Перерисовать сообщение «💰 Оплата» этой игры (после оплаты/отметки админом). */
 export async function refreshLedgerMessage(chatId: number, gameDate: string): Promise<void> {
   const row = db().prepare("SELECT value FROM meta WHERE key = ?").get(msgKey(chatId, gameDate)) as { value: string } | undefined;
   if (!row) return;
-  const { mid, after } = JSON.parse(row.value) as { mid: string; after: boolean };
+  const { mid } = JSON.parse(row.value) as { mid: string };
   await api
-    .editMessage(chatId, mid, { text: buildLedgerText(chatId, gameDate, after), format: "html" })
+    .editMessage(chatId, mid, { text: buildLedgerText(chatId, gameDate), format: "html" })
     .catch((err) => console.warn("[payments] не удалось обновить список оплаты:", err instanceof Error ? err.message : err));
 }
 

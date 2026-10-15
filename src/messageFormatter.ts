@@ -1,24 +1,13 @@
+import { WEEKDAYS, WEEKDAYS_SHORT, dateFull, dateShort, gameWhen, timeHM } from "./format";
+
+/** «Пт 09.10» — день игры коротко. */
+const gameDay = (iso: string) => `${WEEKDAYS_SHORT[new Date(iso).getDay()]} ${dateShort(new Date(iso))}`;
 import { SEASON_MONTHS, seasonLabel, seasonOf } from "./gameSeasons";
-import { config } from "./config";
 import { MvpEntry, getMaxPlayers, getPayment, getRole, isRoleHolderEntry, getRosterTemplate } from "./settingsStore";
 import { FootballSession, Player, VoteCandidate, VoteSession } from "./types";
 
-const WEEKDAYS_RU = [
-  "Воскресенье",
-  "Понедельник",
-  "Вторник",
-  "Среда",
-  "Четверг",
-  "Пятница",
-  "Суббота",
-];
-
-function formatDateRu(date: Date): string {
-  const day = String(date.getDate()).padStart(2, "0");
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const year = date.getFullYear();
-  return `${day}.${month}.${year}`;
-}
+const WEEKDAYS_RU = WEEKDAYS;
+const formatDateRu = dateFull;
 
 /**
  * Формат сообщения по ТЗ (п.3):
@@ -34,8 +23,7 @@ function formatDateRu(date: Date): string {
  */
 /** «ЧЧ:ММ» игры этой записи (из её даты — может отличаться от GAME_TIME после /описание). */
 export function gameTimeOf(session: FootballSession): string {
-  const d = new Date(session.date);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  return timeHM(new Date(session.date));
 }
 
 export const DEFAULT_ROSTER_TEMPLATE = "Футбол в {День} {дата} года\nВ {время}";
@@ -68,7 +56,7 @@ export function buildRosterText(session: FootballSession): string {
   const header = rosterTitle(session);
 
   if (session.players.length === 0) {
-    return `${header}\n\nПока никто не записался. Чтобы записаться, напишите +Имя`;
+    return `${header}\n\nПока никого. Записаться: «+», друга — «+Имя».`;
   }
 
   const lines = session.players.map((player, index) => {
@@ -111,12 +99,6 @@ function votersOf(vote: VoteSession, candidateIndex: number): string {
     .join(", ");
 }
 
-/** Строка кандидата: "Валера — 3 голоса · Ruslan ×3" (без голосов — просто "— 0 голосов"). */
-function candidateVoteLine(vote: VoteSession, c: VoteCandidate, count: number): string {
-  const voters = count > 0 ? ` · ${votersOf(vote, c.index)}` : "";
-  return `${c.displayName} — ${count} ${votesWord(count)}${voters}`;
-}
-
 /** Сколько голосов всего можно отдать: сумма голосов всех голосующих (= игроков основы). */
 export function totalVotes(vote: VoteSession): number {
   return Object.values(vote.creditsByVoter).reduce((a, b) => a + b, 0);
@@ -151,12 +133,9 @@ function voterLines(vote: VoteSession): string[] {
  * голоса бот присылает свежее сообщение внизу чата.
  */
 export function buildVoteText(vote: VoteSession): string {
-  const date = new Date(vote.gameDate);
-  const weekday = WEEKDAYS_RU[date.getDay()];
-  const header = `🏆 Голосование за MVP матча ${weekday} ${formatDateRu(date)} года`;
-  const rules =
-    "Голосуют только игроки основы: у каждого столько голосов, сколько у него записей в основе (себя и друзей). За себя голосовать нельзя. Нажмите на игрока ниже.";
-  return [header, rules, "", `Отдано голосов: ${vote.votes.length} из ${totalVotes(vote)}`, ...voterLines(vote)].join("\n");
+  const header = `🏆 Голосование за MVP — ${gameDay(vote.gameDate)}`;
+  const rules = "Голосует основа: голосов столько, сколько ваших записей в основе. За себя нельзя.";
+  return [header, rules, "", `Голосов: ${vote.votes.length} из ${totalVotes(vote)}`, ...voterLines(vote)].join("\n");
 }
 
 /** Голоса по кандидатам, от большего к меньшему (при равенстве — по порядку в списке). */
@@ -188,21 +167,16 @@ export function getVoteWinners(vote: VoteSession): string[] {
 /** Итоговое сообщение после завершения голосования — остаётся в чате при очистке. */
 /** `congrats` — поздравления победителям (по одному на каждого, в порядке getVoteWinners). */
 export function buildMvpResultText(vote: VoteSession, congrats: string[] = []): string {
-  const date = new Date(vote.gameDate);
-  const weekday = WEEKDAYS_RU[date.getDay()];
-  const header = `🏆 MVP матча ${weekday} ${formatDateRu(date)} года`;
-
-  if (vote.votes.length === 0) {
-    return `${header}\n\nГолосов не было — победитель не определён.`;
-  }
+  const header = `🏆 MVP матча ${gameDay(vote.gameDate)}`;
+  if (vote.votes.length === 0) return `${header}: голосов не было.`;
 
   const ranked = rankCandidates(vote);
   const topCount = ranked[0].count;
   const winners = getVoteWinners(vote);
   const winnerLine =
     winners.length === 1
-      ? `Победитель: ${winners[0]} — ${topCount} ${votesWord(topCount)}`
-      : `MVP матча (${winners.length}): ${winners.join(", ")} — по ${topCount} ${votesWord(topCount)}`;
+      ? `${header} — ${winners[0]} (${topCount} ${votesWord(topCount)})`
+      : `${header} — ${winners.join(", ")} (по ${topCount} ${votesWord(topCount)})`;
 
   // В итогах — только те, за кого голосовали.
   // Победители — первыми (при ничьей больше чем на троих не все из лидеров — MVP).
@@ -214,9 +188,7 @@ export function buildMvpResultText(vote: VoteSession, congrats: string[] = []): 
 
   const congratLines = winners.flatMap((w, i) => (congrats[i] ? ["", `🎉 ${w}! ${congrats[i]}`] : []));
   return [
-    header,
     winnerLine,
-    winners.length === 1 ? "Победителю засчитан MVP в общий рейтинг (команда /mvp)." : "Каждому засчитан MVP в общий рейтинг (команда /mvp).",
     ...congratLines,
     "",
     "Результаты:",
@@ -243,7 +215,7 @@ export function buildMvpRatingText(rating: MvpEntry[], seasonStart: Date | null 
   const total = rating.filter((e) => e.count > 0).map((e) => ({ name: e.name, n: e.count }));
 
   if (total.length === 0) {
-    return "🏆 Рейтинг MVP пока пуст — после первого голосования здесь появятся игроки.";
+    return "🏆 Рейтинг MVP пуст — появится после первого голосования.";
   }
   // Сезон — по календарю (Зима дек–фев, Весна, Лето, Осень сен–ноя); если админ сбрасывал
   // сезон вручную позже начала сезона — показываем, с какого дня идёт счёт.
@@ -255,7 +227,7 @@ export function buildMvpRatingText(rating: MvpEntry[], seasonStart: Date | null 
     `Сезон «${seasonLabel(s)}» (${since}):`,
     ...table(season),
     "",
-    `Игровой год ${s.gameYear} (с 01.12.${s.gameYear - 1}) — лучший станет легендой года:`,
+    `Год ${s.gameYear} (с 01.12.${s.gameYear - 1}), лучший — легенда года:`,
     ...table(year),
     "",
     "За всё время:",
@@ -269,11 +241,10 @@ export function buildReminderText(session: FootballSession): string {
   const main = session.players.filter((p) => !p.isReserve).length;
   const reserve = session.players.length - main;
   const today = new Date().toDateString() === date.toDateString();
-  const when = today ? "Сегодня" : `${WEEKDAYS_RU[date.getDay()]} ${formatDateRu(date)}`;
+  const when = today ? "Сегодня" : `${WEEKDAYS_SHORT[date.getDay()]} ${dateShort(date)}`;
   return [
-    `⏰ ${when} футбол в ${gameTimeOf(session)}.`,
-    `В основе: ${main} из ${getMaxPlayers(session.chatId)}, в резерве: ${reserve}.`,
-    "Кто не сможет прийти — напишите «-» или нажмите «Убрать себя», чтобы место досталось резерву.",
+    `⏰ ${when} в ${gameTimeOf(session)} футбол. Основа ${main}/${getMaxPlayers(session.chatId)}, резерв ${reserve}.`,
+    "Не придёте — «-» или «➖ Убрать себя».",
   ].join("\n");
 }
 
@@ -323,23 +294,18 @@ export function paymentPayerLines(session: FootballSession): string[] {
 }
 
 /** «За игру 350 ₽ с игрока на …» (html). */
+/** «💳 Сбер 0000000000» — реквизиты (html). */
 export function paymentDetailsLine(chatId: number): string {
-  const payment = getPayment(chatId);
-  return `За игру ${payment.amount} ₽ с игрока на ${escapeHtml(payment.details)}`;
+  const details = escapeHtml(getPayment(chatId).details);
+  return /^\p{Extended_Pictographic}/u.test(details) ? details : `💳 ${details}`;
+}
+
+/** «💰 Оплата за игру Пт 09.10, 20:30 — 350 ₽ с игрока» */
+export function paymentHeader(chatId: number, gameDate: string): string {
+  return `💰 Оплата за игру ${gameWhen(new Date(gameDate))} — ${getPayment(chatId).amount} ₽ с игрока`;
 }
 
 export function buildPaymentText(session: FootballSession, phase: "before" | "after", hours: number): string {
-  const date = new Date(session.date);
-  const lines = paymentPayerLines(session);
-
-  const when =
-    phase === "before"
-      ? `до игры ${hours} ч`
-      : "игра прошла — не забудьте оплатить";
-  return [
-    `💰 Оплата за игру ${WEEKDAYS_RU[date.getDay()]} ${formatDateRu(date)}, ${gameTimeOf(session)} (${when})`,
-    paymentDetailsLine(session.chatId),
-    "",
-    ...lines,
-  ].join("\n");
+  const when = phase === "before" ? `до игры ${hours} ч` : "игра прошла";
+  return [`${paymentHeader(session.chatId, session.date)} (${when})`, paymentDetailsLine(session.chatId), "", ...paymentPayerLines(session)].join("\n");
 }

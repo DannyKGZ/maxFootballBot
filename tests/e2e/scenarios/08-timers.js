@@ -16,7 +16,7 @@ module.exports = {
     await sleep(6000);
     await t.idle();
     const res = t.find(/^🏆 MVP матча/);
-    t.ok(res && res.text.includes("закрыто автоматически"), "через ~5 с голосование закрылось само", res && res.text);
+    t.ok(res && res.text.includes("Закрыто по времени."), "через ~5 с голосование закрылось само", res && res.text);
     t.ok(!t.find(/Голосование за MVP/), "сообщение голосования удалено");
     t.ok(t.mvpCount("Валера") === 1, "MVP засчитан ровно один раз");
     await t.say(1, "/итоги");

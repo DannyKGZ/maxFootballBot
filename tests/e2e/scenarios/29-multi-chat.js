@@ -39,9 +39,9 @@ module.exports = {
     t.ok(/чат -2: запись по расписанию "0 0 10 \* \* 5"/.test(t.log), "задача публикации «Лиги» перезапущена");
     await t.say(6, "/статус", { chat: LEAGUE });
     await t.say(3, "/статус");
-    const sLg = t.find(/Расписание/, LEAGUE);
-    const sFirst = t.find(/Расписание/);
-    t.ok(sLg && /10:00/.test(sLg.text) && sFirst && /09:00/.test(sFirst.text), "в /статус у каждого чата своё расписание", [sLg && sLg.text, sFirst && sFirst.text]);
+    const sLg = t.find(/^📋 (Игра |Записи нет)/, LEAGUE);
+    const sFirst = t.find(/^📋 (Игра |Записи нет)/);
+    t.ok(sLg && /Следующая запись: Пт \d\d\.\d\d, 10:00/.test(sLg.text) && sFirst && /Следующая запись: (Пн|Пт) \d\d\.\d\d, 09:00/.test(sFirst.text), "в /статус у каждого чата своё расписание", [sLg && sLg.text, sFirst && sFirst.text]);
 
     // Чужой чат бот не обслуживает
     await t.say(1, "/старт", { chat: -3 });

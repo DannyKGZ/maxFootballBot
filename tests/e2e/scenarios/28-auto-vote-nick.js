@@ -27,7 +27,7 @@ module.exports = {
     t.ok(t.buttons(v).join("|") === "Ruslan|Рома ▰▰▰▰▰▱▱▱▱▱ 1", "прогресс только у того, за кого голосовали", t.buttons(v));
     await t.click(3, v, "Ruslan");
     const res = t.find(/^🏆 MVP матча/);
-    t.ok(res && res.text.includes("Все проголосовали — голосование закрыто автоматически"), "все проголосовали — итоги сразу, без /итоги", res && res.text);
+    t.ok(res && res.text.includes("Проголосовали все."), "все проголосовали — итоги сразу, без /итоги", res && res.text);
     t.ok(!t.find(/Голосование за MVP/), "сообщение голосования убрано");
     await sleep(1000);
     await t.idle();

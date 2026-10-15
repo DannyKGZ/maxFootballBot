@@ -39,8 +39,6 @@ export interface Draft {
 }
 
 export type PendingActionType =
-  | "confirm_add_another" // "Вы уже записаны. Хотите записать другого игрока?"
-  | "await_new_player_name" // ждём текстовое сообщение с именем нового игрока
   | "confirm_remove" // "Вы хотите удалить своё бронирование?"
   | "confirm_restart_session" // "Уже идёт запись на N человек, точно начать новую?" (только админы)
   | "confirm_close_session"; // "Точно закрыть запись без открытия новой?" (только админы)
@@ -158,8 +156,6 @@ export interface MaxUpdate {
 
 // Payload инлайн-кнопок, которые генерирует бот (см. src/keyboard.ts)
 export type ButtonAction =
-  | { a: "add_another_yes"; u: number }
-  | { a: "add_another_no"; u: number }
   | { a: "remove_yes"; u: number }
   | { a: "remove_no"; u: number }
   | { a: "rm_pick"; u: number; n: string } // выбор, кого из своих записей удалить (n = имя игрока)

@@ -1,5 +1,5 @@
+import { dateFull, gameWhen, pad } from "./format";
 import { getMaxPlayers, getRole, legendUntil } from "./settingsStore";
-import { config } from "./config";
 import { db } from "./db";
 import * as api from "./maxApi";
 import { currentScheduleText } from "./scheduleLogic";
@@ -13,12 +13,12 @@ import { teamsText } from "./draftLogic";
  * осталось, идёт ли голосование и когда бот сам опубликует следующую запись.
  */
 
-const WEEKDAYS = ["воскресенье", "понедельник", "вторник", "среда", "четверг", "пятница", "суббота"];
-const pad = (n: number) => String(n).padStart(2, "0");
 
+
+/** «Пт 09.10, 20:30» (с секундами, если они есть: 11:59:59). */
 function formatWhen(date: Date): string {
-  const sec = date.getSeconds() ? `:${pad(date.getSeconds())}` : ""; // 11:59:59 — с секундами, если они есть
-  return `${WEEKDAYS[date.getDay()]} ${pad(date.getDate())}.${pad(date.getMonth() + 1)} в ${pad(date.getHours())}:${pad(date.getMinutes())}${sec}`;
+  const sec = date.getSeconds() ? `:${pad(date.getSeconds())}` : "";
+  return `${gameWhen(date)}${sec}`;
 }
 
 /** «1 д 3 ч», «2 ч 15 мин», «12 мин». */
@@ -40,11 +40,11 @@ function rosterLines(session: FootballSession): string[] {
   const name = (p: FootballSession["players"][number]) => (p.lastName ? `${p.displayName} ${p.lastName}` : p.displayName);
   const lines = [
     "",
-    `Основа: ${main.length} из ${max}${free ? `, свободно мест: ${free}` : " — мест нет, дальше резерв"}`,
-    ...(main.length ? main.map((p, i) => `${i + 1}. ${name(p)}`) : ["— пока никого"]),
+    `Основа ${main.length}/${max}${free ? `, свободно ${free}` : ", мест нет"}:`,
+    ...(main.length ? main.map((p, i) => `${i + 1}. ${name(p)}`) : ["— никого"]),
   ];
   if (reserve.length) {
-    lines.push("", `Резерв: ${reserve.length}`, ...reserve.map((p, i) => `${main.length + i + 1}. ${name(p)}`));
+    lines.push("", `Резерв ${reserve.length}:`, ...reserve.map((p, i) => `${main.length + i + 1}. ${name(p)}`));
   }
   return lines;
 }
@@ -52,43 +52,36 @@ function rosterLines(session: FootballSession): string[] {
 export function buildStatusText(chatId: number, now = Date.now()): string {
   const session = getSession(chatId);
   const vote = getVoteSession(chatId);
-  const lines: string[] = ["📋 Статус записи", ""];
+  const lines: string[] = [];
 
   if (session) {
     const game = new Date(session.date);
     const left = game.getTime() - now;
-    if (isSignupOpen(session, now)) {
-      lines.push(
-        `✅ Запись открыта до начала игры — ${formatWhen(game)}, осталось ${formatDuration(left)}.`,
-        "Записаться: «+» или кнопка «➕ Записаться».",
-      );
-    } else {
-      lines.push(
-        `🔒 Запись закрыта — игра ${left > -3 * 3_600_000 ? "началась" : "прошла"}: ${formatWhen(game)} (${formatDuration(left)} назад).`,
-        "Состав зафиксирован, менять его может только админ.",
-      );
-    }
-    lines.push(`Запись открыта: ${formatWhen(new Date(session.createdAt))}.`, ...rosterLines(session));
+    lines.push(`📋 Игра ${formatWhen(game)}`);
+    lines.push(
+      isSignupOpen(session, now)
+        ? `✅ Запись открыта, до игры ${formatDuration(left)}. Записаться: «+».`
+        : `🔒 Запись закрыта: игра ${left > -3 * 3_600_000 ? "идёт" : "прошла"} (${formatDuration(left)} назад). Состав меняет админ.`,
+    );
+    lines.push(...rosterLines(session));
     const teams = teamsText(session);
     if (teams) lines.push("", teams);
   } else {
     const last = getArchivedSession(chatId);
-    lines.push("⛔ Сейчас записи нет — она закрыта.");
-    if (last) lines.push(`Последняя игра: ${formatWhen(new Date(last.date))}, игроков: ${last.players.length}.`);
+    lines.push(`📋 Записи нет.${last ? ` Последняя игра: ${formatWhen(new Date(last.date))}, игроков ${last.players.length}.` : ""}`);
   }
 
   const next = nextPublicationDate(chatId, new Date(now));
   const legend = getRole(chatId, "legend", now);
   const maniska = getRole(chatId, "maniska", now);
-  if (legend || maniska) lines.push("");
-  if (legend) lines.push(`🏆 Легенда: ${legend.displayName} (до ${pad(legendUntil(legend).getDate())}.${pad(legendUntil(legend).getMonth() + 1)}.${legendUntil(legend).getFullYear()}) — всегда 1-й в записи.`);
-  if (maniska) lines.push(`👕 Манишки у: ${maniska.displayName} — всегда 2-й в записи.`);
+  lines.push("");
+  if (legend) lines.push(`🏆 Легенда: ${legend.displayName} (до ${dateFull(legendUntil(legend))})`);
+  if (maniska) lines.push(`👕 Манишки: ${maniska.displayName}`);
+  if (vote) lines.push(`🗳 Голосование MVP: ${vote.votes.length} из ${Object.values(vote.creditsByVoter).reduce((a, b) => a + b, 0)} голосов`);
   lines.push(
-    "",
-    vote ? `🗳 Идёт голосование за MVP — отдано голосов: ${vote.votes.length}.` : "🗳 Голосование за MVP сейчас не идёт.",
     next
-      ? `🗓 Следующая запись откроется ${formatWhen(next)} — на игру ${formatWhen(computeNextGameDate(chatId, next))}. Расписание: ${currentScheduleText(chatId)}.`
-      : `🗓 Новая запись публикуется автоматически: ${currentScheduleText(chatId)}.`,
+      ? `🗓 Следующая запись: ${formatWhen(next)} → игра ${formatWhen(computeNextGameDate(chatId, next))}`
+      : `🗓 Расписание: ${currentScheduleText(chatId)}`,
   );
   return lines.join("\n");
 }

@@ -297,9 +297,9 @@ export async function finalizeVote(chatId: number, reason: boolean | "all_voted"
   }
   const note =
     reason === "all_voted"
-      ? "\n\nВсе проголосовали — голосование закрыто автоматически."
+      ? "\n\nПроголосовали все."
       : reason
-        ? "\n\nГолосование закрыто автоматически по времени."
+        ? "\n\nЗакрыто по времени."
         : "";
   const congrats = pickCongrats(chatId, getVoteWinners(vote).length);
   const res = await api.sendMessageToChat(chatId, { text: buildMvpResultText(vote, congrats) + note });

@@ -1,3 +1,4 @@
+import { dateShort, timeHM } from "./format";
 import { RoleHolder, RoleKind, getMaxPlayers, getRole, isRoleHolderEntry } from "./settingsStore";
 import { config } from "./config";
 import { computeNextGameDate, isSignupOpen } from "./gameDays";
@@ -25,8 +26,9 @@ import { FootballSession, MaxUser, Player } from "./types";
 /** Пересчитывает isReserve строго по позиции в списке (правило: первые /лимит или MAX_PLAYERS — основа). */
 function recomputeReserveFlags(session: FootballSession): void {
   orderRolePlayers(session);
+  const max = getMaxPlayers(session.chatId);
   session.players.forEach((player, index) => {
-    player.isReserve = index >= getMaxPlayers(session.chatId);
+    player.isReserve = index >= max;
   });
 }
 
@@ -138,8 +140,7 @@ function rosterMessage(session: FootballSession) {
 /** Текст отказа, когда запись уже закрыта (игра началась). */
 export function signupClosedText(session: FootballSession): string {
   const d = new Date(session.date);
-  const time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  return `🔒 Запись на игру ${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")} в ${time} закрыта — игра уже началась. Состав изменить может только админ.`;
+  return `🔒 Запись закрыта: игра ${dateShort(d)} в ${timeHM(d)} началась. Состав меняет только админ.`;
 }
 
 /**
@@ -267,10 +268,18 @@ async function closeAndArchive(session: FootballSession, newOpened: boolean): Pr
  * GET /chats/{chatId}/members/admins. Владелец чата и боты со статусом
  * администратора также попадают в этот список.
  */
+// Админы чата — у MAX, с кэшем на минуту: кнопки и команды проверяют права постоянно.
+const adminsCache = new Map<number, { ids: Set<number>; at: number }>();
+const ADMINS_TTL_MS = 60_000;
+
 export async function isChatAdmin(chatId: number, userId: number): Promise<boolean> {
+  const hit = adminsCache.get(chatId);
+  if (hit && Date.now() - hit.at < ADMINS_TTL_MS) return hit.ids.has(userId);
   try {
     const res = await api.getChatAdmins(chatId);
-    return res.members.some((m) => m.user_id === userId);
+    const ids = new Set(res.members.map((m) => m.user_id));
+    adminsCache.set(chatId, { ids, at: Date.now() });
+    return ids.has(userId);
   } catch (err) {
     console.error("[sessionLogic] не удалось проверить права администратора:", err);
     return false; // при ошибке API безопаснее отказать, чем разрешить
@@ -466,56 +475,7 @@ export async function handleRemovePick(chatId: number, userId: number, name: str
   await removePlayerAt(session, index);
 }
 
-/**
- * Свободный текст, пришедший, пока у пользователя открыт pendingAction
- * "await_new_player_name" — это и есть имя нового игрока, которого он хочет добавить.
- */
-export async function handleAwaitedPlayerName(
-  chatId: number,
-  userId: number,
-  name: string,
-  sender: MaxUser,
-): Promise<boolean> {
-  const pending = getPendingAction(chatId, userId);
-  if (!pending || pending.type !== "await_new_player_name") return false;
-  // Команды, "@all" и "+"/"-" не считаем именем — пусть обработаются как обычно.
-  if (/^[/@+-]/.test(name)) {
-    clearPendingAction(chatId, userId);
-    return false;
-  }
-
-  const session = getSession(chatId);
-  clearPendingAction(chatId, userId);
-  if (!session) return true;
-  if (!isSignupOpen(session)) {
-    await api.sendMessageToChat(chatId, { text: signupClosedText(session) });
-    return true;
-  }
-
-  const error = validateNames([name]);
-  if (error) {
-    await api.sendMessageToChat(chatId, { text: error });
-    return true;
-  }
-  await addPlayers(session, userId, [{ displayName: name }], sender);
-  return true;
-}
-
 // ---- Обработка нажатий на инлайн-кнопки ----
-
-export async function handleAddAnotherYes(chatId: number, userId: number): Promise<void> {
-  const session = getSession(chatId);
-  if (session && !isSignupOpen(session)) {
-    await api.sendMessageToChat(chatId, { text: signupClosedText(session) });
-    return;
-  }
-  setPendingAction({ type: "await_new_player_name", chatId, userId, createdAt: Date.now() });
-  await api.sendMessageToChat(chatId, { text: "Напишите имя нового игрока сообщением, например: Владимир" });
-}
-
-export async function handleAddAnotherNo(chatId: number, userId: number): Promise<void> {
-  clearPendingAction(chatId, userId);
-}
 
 export async function handleRemoveYes(chatId: number, userId: number): Promise<void> {
   const targetName = getPendingAction(chatId, userId)?.targetName;
@@ -559,7 +519,7 @@ export async function requestAdminStart(chatId: number, userId: number): Promise
 
   setPendingAction({ type: "confirm_restart_session", chatId, userId, createdAt: Date.now() });
   await api.sendMessageToChat(chatId, {
-    text: `Сейчас уже идёт запись (записано: ${session.players.length}). Точно начать новую? Старая запись закроется.`,
+    text: `Идёт запись (${session.players.length} чел.). Точно начать новую? Текущая закроется.`,
     attachments: [confirmRestartKeyboard(userId)],
   });
   return "asked_confirmation";
@@ -598,7 +558,7 @@ export async function requestAdminClose(chatId: number, userId: number): Promise
 
   setPendingAction({ type: "confirm_close_session", chatId, userId, createdAt: Date.now() });
   await api.sendMessageToChat(chatId, {
-    text: `Точно закрыть текущую запись (записано: ${session.players.length}) без открытия новой?`,
+    text: `Точно закрыть запись (${session.players.length} чел.) без новой?`,
     attachments: [confirmCloseKeyboard(userId)],
   });
   return "asked_confirmation";

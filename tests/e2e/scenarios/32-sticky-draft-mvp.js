@@ -29,7 +29,7 @@ module.exports = {
     }
     await settle();
     const done = t.find(/^⚽ Составы готовы/);
-    t.ok(done && done.format === "html" && done.text.includes("💰 За игру 350 ₽ с игрока на Т-банк 0000"), "в составах — напоминание об оплате", done && done.text);
+    t.ok(done && done.format === "html" && done.text.includes("— 350 ₽ с игрока\n💳 Т-банк 0000"), "в составах — напоминание об оплате", done && done.text);
     t.ok(done && done.text.includes('<a href="max://user/2">Ruslan</a> — 700 ₽ (Ruslan, Петя)') && done.text.includes('<a href="max://user/6">Шестой</a> — 350 ₽'), "игроки отмечены (упоминания) с суммой", done && done.text);
 
     // Составы готовы — больше не держим их внизу (иначе бот перепостил бы их на каждое сообщение).
@@ -55,7 +55,7 @@ module.exports = {
     await vote(6, "Ruslan");
     await settle();
     const res = t.find(/^🏆 MVP матча/);
-    t.ok(res && res.text.includes("MVP матча (3): Рома, Влад, Пятый — по 1 голос"), "до 3 MVP: при ничьей — первые трое", res && res.text);
+    t.ok(res && res.text.includes("— Рома, Влад, Пятый (по 1 голос)"), "до 3 MVP: при ничьей — первые трое", res && res.text);
     const cg = res ? res.text.split("\n").filter((l) => l.startsWith("🎉 ")) : [];
     t.ok(cg.length === 3 && cg[0].startsWith("🎉 Рома! ") && cg[1].startsWith("🎉 Влад! ") && new Set(cg.map((l) => l.replace(/^🎉 \S+! /, ""))).size === 3, "каждому MVP — своё случайное поздравление", cg);
     t.ok(t.mvpCount("Рома") === 1 && t.mvpCount("Пятый") === 1 && t.mvpCount("Шестой") === 0, "в рейтинг засчитано троим");

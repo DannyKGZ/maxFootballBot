@@ -27,10 +27,10 @@ module.exports = {
     const adminParts = t.dmTo(1).filter((m) => m.text.startsWith("ℹ️ Инструкция администратора") || m.text.includes("— часть "));
     const admin = t.helpDm(1);
     t.ok(admin.startsWith("ℹ️ Инструкция администратора"), "/help от админа — инструкция администратора в личку");
-    t.ok(adminParts.length > 1, "инструкция админа пришла несколькими частями", adminParts.length);
+    t.ok(adminParts.length >= 1, "инструкция админа пришла (частями, если не влезает)", adminParts.length);
     const oversized = t.dmTo(1).filter((m) => m.text.length > 4000).map((m) => m.text.length);
     t.ok(oversized.length === 0, "ни одна часть не превышает лимит MAX в 4000 символов", oversized);
-    const numbered = adminParts.every((m, i) => m.text.endsWith(`— часть ${i + 1} из ${adminParts.length}`));
+    const numbered = adminParts.length === 1 || adminParts.every((m, i) => m.text.endsWith(`— часть ${i + 1} из ${adminParts.length}`));
     t.ok(numbered, "части пронумерованы «— часть N из M»");
     const split = adminParts.slice(1).every((m) => /^[^•]/.test(m.text));
     t.ok(split, "часть начинается с заголовка раздела, а не с обрывка списка");
@@ -42,6 +42,6 @@ module.exports = {
     await t.say(3, "/инструкция");
     t.ok(t.helpDm(3).startsWith("ℹ️ Как пользоваться"), "/инструкция от участника — его инструкция в личку");
     await t.say(9, "/help");
-    t.ok(!!t.find(/Чтобы получить инструкцию, откройте бота/), "не открывавшему бота — подсказка в чате");
+    t.ok(!!t.find(/^Откройте бота в личке, нажмите «Начать»/), "не открывавшему бота — подсказка в чате");
   },
 };

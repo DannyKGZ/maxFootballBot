@@ -80,7 +80,7 @@ async function notifyAdmins(row: PaymentRow, reason: string, file?: Attachment):
   } catch {
     return;
   }
-  const text = `🧾 Чек на ручную проверку: ${row.payer_name} (${row.payer_profile}) — игра ${shortDate(row.game_date)}, должен ${row.due} ₽.\nПричина: ${reason}.\nЕсли оплата в порядке — отметьте: /должники, затем /оплатил <номер>.`;
+  const text = `🧾 На проверку: ${row.payer_name} (${row.payer_profile}), игра ${shortDate(row.game_date)}, долг ${row.due} ₽.\nПричина: ${reason}.\nОплата верна — /должники, затем /оплатил <номер>.`;
   for (const id of admins.filter((a) => a !== row.payer_id)) {
     await api.sendMessageToUser(id, { text }).catch(() => undefined);
     if (file?.payload?.token) {
@@ -105,7 +105,7 @@ export async function handleDmAttachments(dmChatId: number, user: MaxUser, attac
   const reply = (text: string, buttons?: KeyboardButton[][]) =>
     api.sendMessageToChat(dmChatId, { text, attachments: buttons ? [{ type: "inline_keyboard", payload: { buttons } }] : undefined });
   if (!row) {
-    await reply("Неоплаченных игр за вами не нашёл — всё в порядке 👍");
+    await reply("Неоплаченных игр нет 👍");
     return true;
   }
   const files = attachments as Attachment[];
@@ -116,7 +116,7 @@ export async function handleDmAttachments(dmChatId: number, user: MaxUser, attac
       updateRow(row.id, { status: "wrong_file" });
       await refreshLedgerMessage(row.chat_id, row.game_date);
     }
-    await reply("Нужен PDF-файл с чеком об оплате. В приложении банка откройте перевод → «Квитанция»/«Чек» → «Поделиться» → сохраните или отправьте PDF сюда.");
+    await reply("Нужен PDF-чек: в банке откройте перевод → «Чек» (квитанция) → «Поделиться» → PDF сюда.");
     console.log(`[receipts] ${user.user_id}: прислал не PDF (${files.map((a) => a.type).join(",")})`);
     return true;
   }
@@ -127,7 +127,7 @@ export async function handleDmAttachments(dmChatId: number, user: MaxUser, attac
     updateRow(row.id, { status: "review", note: reason });
     await refreshLedgerMessage(row.chat_id, row.game_date);
     await notifyAdmins(row, reason, pdf);
-    await reply(`🧾 Чек получил, но проверить автоматически не вышло (${reason}). Передал админу на ручную проверку — больше напоминать не буду.`);
+    await reply(`🧾 Чек не прошёл проверку: ${reason}. Передал админу, напоминаний больше не будет.`);
     console.log(`[receipts] ${user.user_id}: на проверку — ${reason}`);
   };
 
@@ -142,7 +142,7 @@ export async function handleDmAttachments(dmChatId: number, user: MaxUser, attac
     if (bytes.length > MAX_PDF_BYTES) throw new Error("файл больше 10 МБ");
   } catch (err) {
     console.warn("[receipts] не удалось скачать PDF:", err instanceof Error ? err.message : err);
-    await reply("Не удалось скачать файл — пришлите PDF-чек ещё раз, пожалуйста.");
+    await reply("Не удалось скачать файл — пришлите PDF ещё раз.");
     return true;
   }
 
@@ -157,13 +157,13 @@ export async function handleDmAttachments(dmChatId: number, user: MaxUser, attac
   } catch (err) {
     console.warn("[receipts] не удалось прочитать PDF:", err instanceof Error ? err.message : err);
   }
-  if (!text.trim()) return (await toReview("в PDF нет текста"), true);
+  if (!text.trim()) return (await toReview("в PDF нет текста (скан?)"), true);
   db().prepare("INSERT OR IGNORE INTO receipts (hash, chat_id, payer_id, at) VALUES (?, ?, ?, ?)").run(hash, row.chat_id, user.user_id, Date.now());
 
   if (!recipientMatches(text, expected)) return (await toReview("получатель не совпадает"), true);
   const amount = findAmount(text);
   if (amount === null) return (await toReview("не нашёл сумму"), true);
-  if (amount <= 0 || amount % unit !== 0) return (await toReview(`сумма ${amount} ₽, а за игру ${unit} ₽ с игрока`), true);
+  if (amount <= 0 || amount % unit !== 0) return (await toReview(`сумма ${amount} ₽ не кратна ${unit} ₽`), true);
 
   // Сумма кратна цене игры — засчитываем: сначала свой долг, остаток — за других.
   const paid = Math.min(row.due, row.paid + amount);
@@ -172,19 +172,19 @@ export async function handleDmAttachments(dmChatId: number, user: MaxUser, attac
   await refreshLedgerMessage(row.chat_id, row.game_date);
   console.log(`[receipts] ${user.user_id}: чек на ${amount} ₽ принят (игра ${row.game_date})`);
   if (paid < row.due) {
-    await reply(`✅ Чек на ${amount} ₽ принят. Осталось оплатить ${row.due - paid} ₽ — пришлите ещё чек.`);
+    await reply(`✅ Принято ${amount} ₽. Осталось ${row.due - paid} ₽ — пришлите ещё чек.`);
     return true;
   }
   if (left > 0) {
     db().prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(creditKey(user.user_id), JSON.stringify({ rowId: row.id, left }));
     const buttons = creditButtons(row, left);
     if (buttons.length > 1) {
-      await reply(`✅ Оплата принята: ${amount} ₽, из них ${row.due} ₽ — за вас. Осталось ${left} ₽ — за кого ещё вы заплатили? Нажмите на игроков:`, buttons);
+      await reply(`✅ Принято ${amount} ₽: ${row.due} ₽ за вас, ещё ${left} ₽ — за кого?`, buttons);
       return true;
     }
     left = 0;
   }
-  await reply(`✅ Оплата ${amount} ₽ за игру ${shortDate(row.game_date)} принята — спасибо! В списке вы отмечены.`);
+  await reply(`✅ Оплата ${amount} ₽ за игру ${shortDate(row.game_date)} принята.`);
   return true;
 }
 
@@ -203,7 +203,7 @@ export async function handleReceiptAction(dmChatId: number, userId: number, acti
   };
   if (!credit || !own) return "Уже готово";
   if (action.a === "rcpt_done") {
-    await finish(`✅ Готово. Оплата отмечена${credit.left > 0 ? ` (не распределено ${credit.left} ₽)` : ""}.`);
+    await finish(`✅ Готово${credit.left > 0 ? `, не распределено ${credit.left} ₽` : ""}.`);
     return "Готово";
   }
   if (action.a !== "rcpt_for") return "Готово";
@@ -222,7 +222,7 @@ export async function handleReceiptAction(dmChatId: number, userId: number, acti
   if (messageId) {
     await api
       .editMessage(dmChatId, messageId, {
-        text: `Отмечен ${other.payer_name}. Осталось ${credit.left} ₽ — за кого ещё?`,
+        text: `✅ ${other.payer_name}. Ещё ${credit.left} ₽ — за кого?`,
         attachments: [{ type: "inline_keyboard", payload: { buttons: creditButtons(own, credit.left) } }],
       })
       .catch(() => undefined);

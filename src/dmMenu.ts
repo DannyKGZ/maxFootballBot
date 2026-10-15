@@ -1,4 +1,3 @@
-import { config } from "./config";
 import * as actions from "./actions";
 import * as api from "./maxApi";
 import { dmRemoveKeyboard, userMenuKeyboard } from "./keyboard";

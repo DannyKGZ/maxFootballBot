@@ -1,3 +1,4 @@
+import { NOT_ADMIN } from "./format";
 import * as api from "./maxApi";
 import { InlineKeyboardAttachment, KeyboardButton } from "./maxApi";
 import { adminRemoveAt, adminRenameAt, adminSwap, ensurePlayerIds, findPlayerIndex, isChatAdmin, playerKey } from "./sessionLogic";
@@ -19,7 +20,6 @@ export const RENAME_RE = /^\/(переименовать|заменить|rename
 /** «/поменять 1 на 12», «/поменять 1 12», «/поменять 1 и 12» — номера в списке. */
 export const SWAP_RE = /^\/(поменять|swap)\s+(\d+)\s+(?:(?:на|и)\s+)?(\d+)$/i;
 
-const NOT_ADMIN = "Эта команда доступна только администраторам чата.";
 
 function label(session: FootballSession, i: number): string {
   const p = session.players[i];

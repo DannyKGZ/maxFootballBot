@@ -50,7 +50,7 @@ module.exports = {
     t.ok(p && p.format === "html" && p.text.includes("(до игры 3 ч)"), "формат html, слот «за 3 ч»", p && p.text);
     t.ok(p && p.text.includes('<a href="max://user/2">Ruslan</a> — 700 ₽ (Ruslan, Тест1)'), "Ruslan упомянут, 700 ₽ за себя и друга", p && p.text);
     t.ok(p && p.text.includes('<a href="max://user/3">Рома</a> — 350 ₽') && !p.text.includes("max://user/4"), "Рома — 350 ₽; резерв (Влад) не платит", p && p.text);
-    t.ok(p && p.text.includes("За игру 350 ₽ с игрока на 💳 Сбер 0000000000"), "сумма и реквизиты");
+    t.ok(p && /^💰 Оплата за игру \S+ \d\d\.\d\d, \d\d:\d\d — 350 ₽ с игрока \(до игры 3 ч\)\n💳 Сбер 0000000000\n/.test(p.text), "сумма и реквизиты");
     t.ok(p && p.text.includes('<a href="max://user/5">Никита Халиманов</a> — 350 ₽ (Друг Пятого)'), "записавший только друга упомянут полным именем", p && p.text);
     t.ok(!t.all(-1).some((m) => m.text.startsWith("⏰")), "напоминание за 5 ч уже опоздало на 2,5 ч — не шлём пачкой");
 

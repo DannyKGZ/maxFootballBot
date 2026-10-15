@@ -1,3 +1,4 @@
+import { WEEKDAYS_SHORT, pad } from "./format";
 import { config } from "./config";
 import * as api from "./maxApi";
 import {
@@ -28,10 +29,9 @@ interface Dialog {
 const dialogs = new Map<string, Dialog>();
 
 const key = (chatId: number, userId: number) => `${chatId}:${userId}`;
-const DAY_NAMES = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
+const DAY_NAMES = WEEKDAYS_SHORT;
 // ЧЧ:ММ:СС, секунды можно не писать: "20:30" = "20:30:00".
 const TIME_RE = /^(\d{1,2})[:.](\d{2})(?:[:.](\d{2}))?$/;
-const pad = (n: number) => String(n).padStart(2, "0");
 
 /** Дни в порядке пн..вс для показа пользователю. */
 function formatDays(days: number[]): string {
@@ -80,7 +80,7 @@ function daysText(group: number, days: number[]): string {
   return [
     `Сейчас запись публикуется: ${currentScheduleText(group)}.`,
     "",
-    "Выберите дни недели, в которые бот публикует запись (нажмите ещё раз, чтобы снять выбор), или сбросьте расписание к значению по умолчанию.",
+    "Выберите дни публикации записи (повторное нажатие снимает выбор).",
     chosen,
   ].join("\n");
 }

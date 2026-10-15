@@ -10,7 +10,7 @@ import { NICK_RE, handleAwaitedNick, handleDmUserAction, isDmUserAction, nickCom
 import * as rosterEdit from "./rosterEdit";
 import { dmTarget } from "./dmTarget";
 import * as draft from "./draftLogic";
-import { DESCRIPTION_RE, handleDescriptionAndReply } from "./descriptionLogic";
+import { DESCRIPTION_RE, handleDescription } from "./descriptionLogic";
 import { GAMES_RE, gamesCommand } from "./gameSlotsLogic";
 import {
   DEBTORS_RE,
@@ -27,7 +27,7 @@ import {
 import * as receipts from "./receiptLogic";
 import * as scheduleLogic from "./scheduleLogic";
 import * as voteLogic from "./voteLogic";
-import { MaxUpdate } from "./types";
+import { MaxUpdate, MaxUser } from "./types";
 import { noteChatActivity } from "./stickyLogic";
 import * as roles from "./rolesLogic";
 import { fullName } from "./messageFormatter";
@@ -38,18 +38,83 @@ const VOTE_RE = /^\/(голос|vote)$/i;
 // /статус — актуальность записи (для всех, в чате и в личке с ботом).
 const STATUS_RE = /^\/(статус|status)$/i;
 
-// Текстовые команды панели. Админские проверяют права внутри (через API MAX);
-// те же действия вызываются и кнопками под сообщением записи (см. actions.ts).
-const COMMANDS: Array<{ re: RegExp; run: (chatId: number, userId: number) => Promise<actions.ActionResult> }> = [
-  { re: /^\/(mvp|мвп)$/i, run: actions.mvp }, // для всех
-  { re: STATUS_RE, run: actions.status }, // для всех
-  { re: actions.HELP_RE, run: actions.sendHelp }, // для всех: инструкция в личку
-  { re: /^\/(schedule|расписание|голосование_расписание)$/i, run: actions.schedule },
-  { re: /^\/(start_signup|старт)$/i, run: actions.start },
-  { re: /^\/(close_signup|закрыть)$/i, run: actions.close },
-  { re: /^\/(vote_mvp|голосование)$/i, run: actions.voteStart },
-  { re: /^\/(finish_vote|итоги)$/i, run: actions.voteFinish },
+/**
+ * Текстовая команда. `group` — чат, на который она действует; `reply` — куда
+ * отвечать (в группе — та же группа, в личке — личка, а `group` — чат,
+ * выбранный человеком, см. dmTarget.ts). run → текст ответа (пусто — без ответа).
+ * Админские команды проверяют права сами (у MAX).
+ */
+interface Ctx {
+  group: number;
+  reply: number;
+  user: MaxUser;
+  userId: number;
+  dm: boolean;
+  text: string;
+}
+interface TextCommand {
+  re: RegExp;
+  where?: "group" | "dm"; // по умолчанию — и в чате, и в личке
+  run: (ctx: Ctx, m: RegExpMatchArray) => Promise<string | null | undefined | void>;
+}
+
+const chatOf = (r: actions.ActionResult) => r.chat;
+
+const TEXT_COMMANDS: TextCommand[] = [
+  { re: NICK_RE, run: (c, m) => nickCommand(c.userId, m[2]) },
+  { re: VOTE_RE, where: "group", run: (c) => voteLogic.voteCommand(c.group, c.userId) },
+  { re: draft.DRAFT_RE, where: "group", run: (c, m) => draft.draftCommand(c.group, c.userId, m[2]) },
+  { re: draft.TEAMS_RE, where: "group", run: async (c) => draft.teamsCommand(c.group) },
+  { re: rosterEdit.REMOVE_RE, run: (c, m) => rosterEdit.removeCommand(c.group, c.userId, m[2]) },
+  { re: rosterEdit.SWAP_RE, run: (c, m) => rosterEdit.swapCommand(c.group, c.userId, m[2], m[3]) },
+  { re: rosterEdit.RENAME_RE, run: (c, m) => rosterEdit.renameCommand(c.group, c.userId, m[2], m[3]) },
+  { re: DESCRIPTION_RE, run: (c, m) => handleDescription(c.group, c.userId, m[2]) },
+  { re: GAMES_RE, run: (c, m) => gamesCommand(c.group, c.userId, m[2]) },
+  { re: roles.LEGEND_RE, run: (c, m) => roles.roleCommand(c.group, c.reply, c.user, "legend", m[2]) },
+  { re: roles.MANISKA_RE, run: (c, m) => roles.roleCommand(c.group, c.reply, c.user, "maniska", m[2]) },
+  { re: DEBTORS_RE, run: (c, m) => debtorsCommand(c.group, c.userId, m[2]) },
+  { re: PAID_RE, run: (c, m) => paidCommand(c.group, c.userId, m[2]) },
+  { re: REMINDERS_RE, run: (c, m) => remindersCommand(c.group, c.userId, m[2]) },
+  { re: LIMIT_RE, run: (c, m) => limitCommand(c.group, c.userId, m[2]) },
+  { re: PAYMENT_RE, run: (c, m) => paymentCommand(c.group, c.userId, m[2]) },
+  { re: actions.MERGE_RE, run: async (c, m) => chatOf(await actions.mergeMvp(c.group, c.userId, m[2], m[3])) },
+  ...actions.MVP_RESET_RE.map(({ re, scope }): TextCommand => ({
+    re,
+    run: async (c) => chatOf(await actions.requestMvpReset(c.group, c.reply, c.userId, scope)),
+  })),
+  {
+    re: actions.MENTION_ALL_RE,
+    run: async (c, m) => {
+      const r = await actions.mentionAll(c.group, c.userId, m[1], { allowEmpty: c.text.startsWith("@") });
+      return r.chat ?? (c.dm ? "Отправлено в чат." : null);
+    },
+  },
+  // /help: в личке инструкция приходит сама; в чате — подсказка, если личка закрыта.
+  { re: actions.HELP_RE, run: async (c) => (c.dm ? void (await actions.sendHelp(c.group, c.userId)) : chatOf(await actions.sendHelp(c.group, c.userId))) },
+  { re: STATUS_RE, where: "dm", run: async (c) => buildStatusText(c.group) },
+  // Команды панели (в личке вместо них — панель с кнопками).
+  { re: STATUS_RE, where: "group", run: async (c) => chatOf(await actions.status(c.group, c.userId)) },
+  { re: /^\/(mvp|мвп)$/i, where: "group", run: async (c) => chatOf(await actions.mvp(c.group, c.userId)) },
+  { re: /^\/(schedule|расписание|голосование_расписание)$/i, where: "group", run: async (c) => chatOf(await actions.schedule(c.group, c.userId)) },
+  { re: /^\/(start_signup|старт)$/i, where: "group", run: async (c) => chatOf(await actions.start(c.group, c.userId)) },
+  { re: /^\/(close_signup|закрыть)$/i, where: "group", run: async (c) => chatOf(await actions.close(c.group, c.userId)) },
+  { re: /^\/(vote_mvp|голосование)$/i, where: "group", run: async (c) => chatOf(await actions.voteStart(c.group, c.userId)) },
+  { re: /^\/(finish_vote|итоги)$/i, where: "group", run: async (c) => chatOf(await actions.voteFinish(c.group, c.userId)) },
 ];
+
+/** Найти и выполнить текстовую команду; true — команда нашлась. */
+async function runTextCommand(ctx: Ctx): Promise<boolean> {
+  const scope = ctx.dm ? "dm" : "group";
+  for (const cmd of TEXT_COMMANDS) {
+    if (cmd.where && cmd.where !== scope) continue;
+    const m = ctx.text.match(cmd.re);
+    if (!m) continue;
+    const answer = await cmd.run(ctx, m);
+    if (answer) await api.sendMessageToChat(ctx.reply, { text: answer });
+    return true;
+  }
+  return false;
+}
 
 /**
  * Имя человека из профиля MAX — только first_name. Оно подставляется при записи
@@ -63,291 +128,60 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
   const message = update.message;
   if (!message) return;
 
-  // Основной путь — message.recipient.chat_id, но на случай, если в реальном
-  // апдейте chat_id лежит на верхнем уровне (как иногда бывает у message_callback),
-  // подстраховываемся тем же фолбэком, что и в диагностическом логе ниже.
+  // Основной путь — message.recipient.chat_id; на случай, если chat_id лежит на верхнем уровне апдейта, — фолбэк.
   const chatId = message.recipient?.chat_id ?? (update as { chat_id?: number }).chat_id;
   const userId = message.sender?.user_id;
   const text = (message.body?.text || "").trim();
+  const dm = message.recipient?.chat_type === "dialog";
 
   // Новое сообщение в группе (и фото/стикер без текста) — дележку/голосование опустим вниз (stickyLogic.ts).
-  if (chatId && message.recipient?.chat_type !== "dialog") noteChatActivity(chatId);
+  if (chatId && !dm) noteChatActivity(chatId);
 
-  // Файл/фото боту в личку — PDF-чек об оплате (receiptLogic.ts).
-  // Стикеры и прочее не считаем — только файл, фото или видео (подпись к файлу не важна).
+  // Файл/фото боту в личку — PDF-чек об оплате (receiptLogic.ts). Стикеры и прочее не считаем.
   const files = (message.body?.attachments ?? []).filter((a) => ["file", "image", "video"].includes((a as { type?: string }).type ?? ""));
-  if (chatId && userId && message.recipient?.chat_type === "dialog" && files.length) {
+  if (chatId && userId && dm && files.length) {
     await receipts.handleDmAttachments(chatId, message.sender, files);
     return;
   }
 
-  if (!chatId || !userId || !text) {
-    console.log(
-      `[webhook] handleMessageCreated: пропуск (chatId=${chatId}, userId=${userId}, text=${JSON.stringify(text)})`,
-    );
-    return;
-  }
+  if (!chatId || !userId || !text) return;
 
   // Группа, которую бот не ведёт: не отвечаем, но пишем её chat_id в лог —
   // так его узнают, чтобы добавить чат в CHAT_IDS (в MAX он нигде не виден).
-  if (message.recipient?.chat_type !== "dialog" && !isManagedChat(chatId)) {
+  if (!dm && !isManagedChat(chatId)) {
     console.log(`[webhook] сообщение из чата chat_id=${chatId} — его нет в CHAT_IDS (${config.chatIds.join(",")}), не отвечаю`);
     return;
   }
 
-  // 0) Личный чат с ботом — это панель администратора (кнопки, скрытые от участников).
-  if (message.recipient?.chat_type === "dialog") {
+  if (dm) {
+    // Ответы на вопросы бота (новое имя, имя в редакторе, время расписания).
     if (await handleAwaitedNick(chatId, userId, text)) return;
-    // Команды из лички действуют на чат, выбранный человеком (см. dmTarget.ts).
-    const target = await dmTarget(userId);
     if (await rosterEdit.handleAwaitedRename(chatId, userId, text)) return;
     if (await scheduleLogic.handleAwaitedTime(chatId, userId, text)) return;
-    // /имя Новое имя — своё имя в списке.
-    const nickDm = text.match(NICK_RE);
-    if (nickDm) {
-      await api.sendMessageToChat(chatId, { text: await nickCommand(userId, nickDm[2]) });
-      return;
-    }
-    // Правка списка общего чата из лички: /удалить 3, /переименовать 3 Имя.
-    const rmDm = text.match(rosterEdit.REMOVE_RE);
-    if (rmDm) {
-      await api.sendMessageToChat(chatId, { text: await rosterEdit.removeCommand(target, userId, rmDm[2]) });
-      return;
-    }
-    const swapDm = text.match(rosterEdit.SWAP_RE);
-    if (swapDm) {
-      await api.sendMessageToChat(chatId, { text: await rosterEdit.swapCommand(target, userId, swapDm[2], swapDm[3]) });
-      return;
-    }
-    const renDm = text.match(rosterEdit.RENAME_RE);
-    if (renDm) {
-      await api.sendMessageToChat(chatId, { text: await rosterEdit.renameCommand(target, userId, renDm[2], renDm[3]) });
-      return;
-    }
-    // /help в личке: админу — полная инструкция, участнику — его (как и на любой другой текст).
-    if (actions.HELP_RE.test(text)) {
-      await actions.sendHelp(target, userId);
-      return;
-    }
-    // /описание в личке — меняет запись выбранного чата, ответ сюда же.
-    const descDm = text.match(DESCRIPTION_RE);
-    if (descDm) {
-      await handleDescriptionAndReply(target, chatId, userId, descDm[2]);
-      return;
-    }
-    // /игры в личке — игры выбранного чата, ответ сюда же.
-    const gamesDm = text.match(GAMES_RE);
-    if (gamesDm) {
-      await api.sendMessageToChat(chatId, { text: await gamesCommand(target, userId, gamesDm[2]) });
-      return;
-    }
-    // /легенда, /манишкаНосец в личке — выбор игрока присылается сюда.
-    for (const [re, kind] of [[roles.LEGEND_RE, "legend"], [roles.MANISKA_RE, "maniska"]] as const) {
-      const m = text.match(re);
-      if (!m) continue;
-      const reply = await roles.roleCommand(target, chatId, message.sender, kind, m[2]);
-      if (reply) await api.sendMessageToChat(chatId, { text: reply });
-      return;
-    }
-    // /лимит в личке — размер основы выбранного чата, ответ сюда же.
-    // /должники, /оплатил в личке — по выбранному чату, ответ сюда же.
-    for (const [re, run] of [[DEBTORS_RE, debtorsCommand], [PAID_RE, paidCommand]] as const) {
-      const m = text.match(re);
-      if (!m) continue;
-      await api.sendMessageToChat(chatId, { text: await run(target, userId, m[2]) });
-      return;
-    }
-    const remDm = text.match(REMINDERS_RE);
-    if (remDm) {
-      await api.sendMessageToChat(chatId, { text: await remindersCommand(target, userId, remDm[2]) });
-      return;
-    }
-    const limitDm = text.match(LIMIT_RE);
-    if (limitDm) {
-      await api.sendMessageToChat(chatId, { text: await limitCommand(target, userId, limitDm[2]) });
-      return;
-    }
-    // /оплата в личке — реквизиты выбранного чата, ответ сюда же.
-    const payDm = text.match(PAYMENT_RE);
-    if (payDm) {
-      await api.sendMessageToChat(chatId, { text: await paymentCommand(target, userId, payDm[2]) });
-      return;
-    }
-    // /статус в личке — статус записи выбранного чата, ответ сюда же.
-    if (STATUS_RE.test(text)) {
-      await api.sendMessageToChat(chatId, { text: buildStatusText(target) });
-      return;
-    }
-    const merge = text.match(actions.MERGE_RE);
-    if (merge) {
-      const result = await actions.mergeMvp(target, userId, merge[2], merge[3]);
-      if (result.chat) await api.sendMessageToChat(chatId, { text: result.chat });
-      return;
-    }
-    // Сброс рейтинга MVP выбранного чата — подтверждение приходит сюда же, в личку.
-    const resetDm = actions.MVP_RESET_RE.find((r) => r.re.test(text));
-    if (resetDm) {
-      const result = await actions.requestMvpReset(target, chatId, userId, resetDm.scope);
-      if (result.chat) await api.sendMessageToChat(chatId, { text: result.chat });
-      return;
-    }
-    // «/Всем …» в личке — упоминание всех участников выбранного чата.
-    const all = text.match(actions.MENTION_ALL_RE);
-    if (all) {
-      const result = await actions.mentionAll(target, userId, all[1], { allowEmpty: text.startsWith("@") });
-      await api.sendMessageToChat(chatId, { text: result.chat ?? "Отправлено в общий чат." });
-      return;
-    }
-    await adminPanel.sendPanel(chatId, userId);
+    // Команды из лички действуют на чат, выбранный человеком (см. dmTarget.ts); иначе — панель.
+    const ctx: Ctx = { group: await dmTarget(userId), reply: chatId, user: message.sender, userId, dm, text };
+    if (!(await runTextCommand(ctx))) await adminPanel.sendPanel(chatId, userId);
     return;
   }
 
-  // 1) Если бот ждёт от этого пользователя имя нового игрока — это оно, вне очереди.
-  const consumed = await sessionLogic.handleAwaitedPlayerName(chatId, userId, text, message.sender);
-  if (consumed) return;
-
-  // 1.1) Ручной ввод времени на шаге диалога настройки расписания.
+  // Ручной ввод времени на шаге диалога расписания.
   if (await scheduleLogic.handleAwaitedTime(chatId, userId, text)) return;
+  if (await runTextCommand({ group: chatId, reply: chatId, user: message.sender, userId, dm, text })) return;
 
-  // 1.15) /имя Новое имя — своё имя в списке (для всех).
-  const nick = text.match(NICK_RE);
-  if (nick) {
-    await api.sendMessageToChat(chatId, { text: await nickCommand(userId, nick[2]) });
-    return;
-  }
-
-  // 1.2) /голос — голосование внизу чата (для всех); если его нет — админ запускает.
-  if (VOTE_RE.test(text)) {
-    const reply = await voteLogic.voteCommand(chatId, userId);
-    if (reply) await api.sendMessageToChat(chatId, { text: reply });
-    return;
-  }
-
-  // 1.25) Дележка на команды (админ) и /составы (все).
-  const dr = text.match(draft.DRAFT_RE);
-  if (dr) {
-    const reply = await draft.draftCommand(chatId, userId, dr[2]);
-    if (reply) await api.sendMessageToChat(chatId, { text: reply });
-    return;
-  }
-  if (draft.TEAMS_RE.test(text)) {
-    await api.sendMessageToChat(chatId, { text: draft.teamsCommand(chatId) });
-    return;
-  }
-
-  // 1.3) Правка списка админом: /удалить 3 (или имя), /переименовать 3 Новое имя.
-  const rm = text.match(rosterEdit.REMOVE_RE);
-  if (rm) {
-    await api.sendMessageToChat(chatId, { text: await rosterEdit.removeCommand(chatId, userId, rm[2]) });
-    return;
-  }
-  const swap = text.match(rosterEdit.SWAP_RE);
-  if (swap) {
-    await api.sendMessageToChat(chatId, { text: await rosterEdit.swapCommand(chatId, userId, swap[2], swap[3]) });
-    return;
-  }
-  const ren = text.match(rosterEdit.RENAME_RE);
-  if (ren) {
-    await api.sendMessageToChat(chatId, { text: await rosterEdit.renameCommand(chatId, userId, ren[2], ren[3]) });
-    return;
-  }
-
-  // 1.4) /описание — своя шапка записи и время игры (только админ).
-  const desc = text.match(DESCRIPTION_RE);
-  if (desc) {
-    await handleDescriptionAndReply(chatId, chatId, userId, desc[2]);
-    return;
-  }
-
-  // 1.45) /игры — свои дни публикации и игр со своим временем (только админ).
-  const games = text.match(GAMES_RE);
-  if (games) {
-    await api.sendMessageToChat(chatId, { text: await gamesCommand(chatId, userId, games[2]) });
-    return;
-  }
-
-  // 1.45a) /легенда, /манишкаНосец — выбор игрока кнопками (только админ).
-  for (const [re, kind] of [[roles.LEGEND_RE, "legend"], [roles.MANISKA_RE, "maniska"]] as const) {
-    const m = text.match(re);
-    if (!m) continue;
-    const reply = await roles.roleCommand(chatId, chatId, message.sender, kind, m[2]);
-    if (reply) await api.sendMessageToChat(chatId, { text: reply });
-    return;
-  }
-
-  // 1.45b) /лимит — сколько человек в основе (только админ).
-  // /должники, /оплатил — учёт оплаты (только админ).
-  for (const [re, run] of [[DEBTORS_RE, debtorsCommand], [PAID_RE, paidCommand]] as const) {
-    const m = text.match(re);
-    if (!m) continue;
-    await api.sendMessageToChat(chatId, { text: await run(chatId, userId, m[2]) });
-    return;
-  }
-  const rem = text.match(REMINDERS_RE);
-  if (rem) {
-    await api.sendMessageToChat(chatId, { text: await remindersCommand(chatId, userId, rem[2]) });
-    return;
-  }
-  const limit = text.match(LIMIT_RE);
-  if (limit) {
-    await api.sendMessageToChat(chatId, { text: await limitCommand(chatId, userId, limit[2]) });
-    return;
-  }
-
-  // 1.46) /оплата — сумма и реквизиты чата (только админ).
-  const pay = text.match(PAYMENT_RE);
-  if (pay) {
-    await api.sendMessageToChat(chatId, { text: await paymentCommand(chatId, userId, pay[2]) });
-    return;
-  }
-
-  // 1.5) Объединение игроков в рейтинге MVP: /объединить Рус = Ruslan (только админ).
-  const merge = text.match(actions.MERGE_RE);
-  if (merge) {
-    const result = await actions.mergeMvp(chatId, userId, merge[2], merge[3]);
-    if (result.chat) await api.sendMessageToChat(chatId, { text: result.chat });
-    return;
-  }
-
-  // 1.55) Сброс рейтинга MVP (только админ, с подтверждением «Да/Нет»).
-  const reset = actions.MVP_RESET_RE.find((r) => r.re.test(text));
-  if (reset) {
-    const result = await actions.requestMvpReset(chatId, chatId, userId, reset.scope);
-    if (result.chat) await api.sendMessageToChat(chatId, { text: result.chat });
-    return;
-  }
-
-  // 1.6) «/Всем текст» — упомянуть всех участников чата (только админ).
-  const all = text.match(actions.MENTION_ALL_RE);
-  if (all) {
-    const result = await actions.mentionAll(chatId, userId, all[1], { allowEmpty: text.startsWith("@") });
-    if (result.chat) await api.sendMessageToChat(chatId, { text: result.chat });
-    return;
-  }
-
-  // 2) Команды панели: /mvp, /расписание, /старт, /закрыть, /голосование, /итоги.
-  for (const command of COMMANDS) {
-    if (!command.re.test(text)) continue;
-    const result = await command.run(chatId, userId);
-    if (result.chat) await api.sendMessageToChat(chatId, { text: result.chat });
-    return;
-  }
-
-  // 3) Иначе обычные команды +Имя / -Имя.
-  // "+" — записать себя по профилю; "+Сергей +Владимир" — записать нескольких сразу.
+  // «+» — записать себя по профилю; «+Сергей +Владимир» — записать нескольких сразу.
   if (text.startsWith("+")) {
     const names = text.split("+").map((s) => s.trim()).filter(Boolean);
     await sessionLogic.handlePlusCommand(chatId, userId, names, message.sender);
     return;
   }
 
-  // "-" — убрать себя; "-Рома" — убрать свою запись с этим именем (с подтверждением).
+  // «-» — убрать себя; «-Рома» — убрать свою запись с этим именем (с подтверждением).
   if (text.startsWith("-")) {
     await sessionLogic.handleMinusCommand(chatId, userId, text.slice(1).trim() || undefined);
     return;
   }
 
-  // Незнакомая команда — не молчим, а подсказываем похожую и /help.
+  // Незнакомая команда — подсказываем похожую и /help.
   const unknown = unknownCommandReply(text);
   if (unknown) await api.sendMessageToChat(chatId, { text: unknown });
 }
@@ -535,12 +369,6 @@ async function handleMessageCallback(update: MaxUpdate): Promise<void> {
   }
 
   switch (action.a) {
-    case "add_another_yes":
-      await sessionLogic.handleAddAnotherYes(chatId, pressedByUserId);
-      break;
-    case "add_another_no":
-      await sessionLogic.handleAddAnotherNo(chatId, pressedByUserId);
-      break;
     case "remove_yes":
       await sessionLogic.handleRemoveYes(chatId, pressedByUserId);
       break;

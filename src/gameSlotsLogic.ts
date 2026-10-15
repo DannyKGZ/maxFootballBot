@@ -1,3 +1,5 @@
+import { WEEKDAYS_SHORT, dateShort, timeHM } from "./format";
+import { NOT_ADMIN } from "./format";
 import { config } from "./config";
 import { computeNextGameDate, nextPublicationDate } from "./gameDays";
 import { applyChatSchedule } from "./scheduler";
@@ -58,12 +60,11 @@ const HELP = [
   "/игры сброс — вернуть обычное расписание (/расписание, игра на следующий день).",
 ].join("\n");
 
-const fmt = (d: Date) =>
-  `${["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"][d.getDay()]} ${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+const fmt = (d: Date) => `${WEEKDAYS_SHORT[d.getDay()]} ${dateShort(d)} ${timeHM(d)}`;
 
 /** Текст ответа админу. `groupChatId` — чат, чьи игры настраиваем (команда может прийти из лички). */
 export async function gamesCommand(groupChatId: number, userId: number, arg?: string): Promise<string> {
-  if (!(await isChatAdmin(groupChatId, userId))) return "Эта команда доступна только администраторам чата.";
+  if (!(await isChatAdmin(groupChatId, userId))) return NOT_ADMIN;
   const text = arg?.trim();
   if (!text) return `Сейчас: ${currentScheduleText(groupChatId)}.\n\n${HELP}`;
 

@@ -19,21 +19,6 @@ function callbackButton(text: string, action: ButtonAction): KeyboardButton {
   return { type: "callback", text, payload: encodePayload(action) };
 }
 
-/** «Вы уже записаны. Хотите записать другого игрока?» [Да] [Нет] */
-export function addAnotherKeyboard(userId: number): InlineKeyboardAttachment {
-  return {
-    type: "inline_keyboard",
-    payload: {
-      buttons: [
-        [
-          callbackButton("Да", { a: "add_another_yes", u: userId }),
-          callbackButton("Нет", { a: "add_another_no", u: userId }),
-        ],
-      ],
-    },
-  };
-}
-
 /** «Вы хотите удалить своё бронирование?» [Да] [Нет] */
 export function confirmRemoveKeyboard(userId: number): InlineKeyboardAttachment {
   return {

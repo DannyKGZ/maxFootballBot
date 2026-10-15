@@ -28,7 +28,7 @@ module.exports = {
     await t.say(5, "/mvp");
     const now = seasonOf(new Date());
     const r = t.find(/^🏆 Рейтинг MVP/).text;
-    t.ok(r.includes(`Сезон «${seasonLabel(now)}»`) && r.includes(`Игровой год ${now.gameYear} (с 01.12.${now.gameYear - 1})`) && r.includes("🥇 Ruslan — 1"), "/mvp: сезон, игровой год и всё время", r);
+    t.ok(r.includes(`Сезон «${seasonLabel(now)}»`) && r.includes(`Год ${now.gameYear} (с 01.12.${now.gameYear - 1})`) && r.includes("🥇 Ruslan — 1"), "/mvp: сезон, игровой год и всё время", r);
 
     // Смена игрового года (как 1 декабря): делаем вид, что прошлая проверка была в прошлом игровом году.
     const setPeriod = async (key) => {
@@ -40,9 +40,9 @@ module.exports = {
       await t.idle(1500);
     };
     await setPeriod(`${now.gameYear - 1}-Осень`);
-    const legend = t.find(/^🏆 Легенда \d{4} года — Ruslan: 1 MVP за игровой год/);
-    t.ok(!!legend && /всегда 1-й в каждой записи — до \d\d\.\d\d\.\d{4}/.test(legend.text), "конец года: лучший по MVP — легенда года", legend && legend.text);
-    t.ok(!!t.find(/^🗓 Начался сезон «/), "объявлен новый сезон");
+    const legend = t.find(/^🏆 Легенда \d{4} года — Ruslan \(1 MVP\)!/);
+    t.ok(!!legend && /1-й в каждой записи до \d\d\.\d\d\.\d{4}/.test(legend.text), "конец года: лучший по MVP — легенда года", legend && legend.text);
+    t.ok(!!t.find(/^🗓 Сезон «/), "объявлен новый сезон");
     const role = t.query("SELECT value FROM meta WHERE key = 'role_legend:-1'")[0];
     t.ok(role && JSON.parse(role.value).userId === 2, "роль легенды назначена Ruslan");
     t.ok(t.lines(t.roster())[0] === "1. Ruslan — Легенда 🏆🏅⚽", "в открытой записи легенда сразу 1-й", t.lines(t.roster()));
@@ -52,9 +52,9 @@ module.exports = {
     // Смена сезона внутри года — без легенды.
     const before = t.count(/^🏆 Легенда/);
     await setPeriod(`${now.gameYear}-Лето`);
-    t.ok(t.count(/^🏆 Легенда/) === before && t.count(/^🗓 Начался сезон/) === 2, "новый сезон в том же году — только объявление сезона");
+    t.ok(t.count(/^🏆 Легенда/) === before && t.count(/^🗓 Сезон «/) === 2, "новый сезон в том же году — только объявление сезона");
     await t.restartBot();
     await t.idle(1000);
-    t.ok(t.count(/^🗓 Начался сезон/) === 2, "повторно не объявляет");
+    t.ok(t.count(/^🗓 Сезон «/) === 2, "повторно не объявляет");
   },
 };
