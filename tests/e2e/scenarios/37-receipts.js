@@ -35,29 +35,34 @@ module.exports = {
     await t.startBot();
     await t.idle(1500);
     const pay = () => t.find(/^💰 Оплата за игру/, -2);
-    t.ok(pay() && pay().text.includes("Оплатили 0 из 5:") && pay().text.includes("PDF-файлом") && (pay().text.match(/max:\/\/user\//g) || []).length === 5, "список оплаты: все 5 с упоминаниями и просьбой прислать PDF", pay() && pay().text);
+    t.ok(pay() && pay().text.includes("Оплатили 0 из 5:") && pay().text.includes("Чек (PDF) — сюда в чат или боту в личку") && (pay().text.match(/max:\/\/user\//g) || []).length === 5, "список оплаты: все 5 с упоминаниями и просьбой прислать PDF", pay() && pay().text);
     t.ok(pay().text.includes('<a href="max://user/6">Шестой</a> — 700 ₽ (Шестой, Петя)'), "кто записывал друга — платит за двоих");
 
+    // Ruslan записал себя → должен 350 ₽: PDF в личку на 350 — принят.
     await t.sendFile(2, "receipt-350.pdf");
-    t.ok(/^✅ Оплата 350 ₽ за игру \d\d\.\d\d принята\.$/.test(t.all(dmOf(2)).pop().text), "PDF на 350 ₽ — принят", t.all(dmOf(2)).pop().text);
+    t.ok(/^✅ оплата 350 ₽ за игру \d\d\.\d\d принята\.$/.test(t.all(dmOf(2)).pop().text), "PDF 350 ₽ в личку — принят", t.all(dmOf(2)).pop().text);
     t.ok(pay().text.includes("✅ Ruslan — 350 ₽") && pay().text.includes("Оплатили 1 из 5:") && !pay().text.includes("max://user/2"), "список обновился, Ruslan больше не упоминается");
 
+    // Шестой записал себя и Петю → должен 700 ₽. Чек на 1050 в общий чат — не та сумма, на проверку.
+    await t.sendFile(6, "receipt-1050.pdf", "file", { chat: -2 });
+    t.ok(/^🧾 Шестой: чек на ручной проверке \(сумма 1050 ₽, нужно 700 ₽ \(2 × 350 ₽\)\)/.test(t.all(-2).pop().text), "чек в чат: сумма не равна 2 × 350 — ручная проверка", t.all(-2).pop().text);
+    t.ok(t.dmTo(1).some((m) => /^🧾 На проверку: Шестой/.test(m.text) && /сумма 1050 ₽/.test(m.text)), "админу — причина");
+    await t.sendFile(6, "receipt-700.pdf", "file", { chat: -2 });
+    t.ok(/^✅ Шестой: оплата 700 ₽ за игру/.test(t.all(-2).pop().text) && pay().text.includes("✅ Шестой — 700 ₽ (Шестой, Петя)"), "PDF 700 ₽ в чат — за двоих, принят");
+
+    // Фото чека — на ручную проверку.
     await t.sendFile(3, "photo.jpg", "image");
-    t.ok(/^Нужен PDF-чек/.test(t.all(dmOf(3)).pop().text) && pay().text.includes("📎 Рома — 350 ₽ — ждём PDF-чек") && !pay().text.includes("max://user/3"), "не PDF — просим PDF и больше не упоминаем");
+    t.ok(/^🧾 чек на ручной проверке \(фото/.test(t.all(dmOf(3)).pop().text) && pay().text.includes("⏳ Рома — 350 ₽ — чек на проверке") && !pay().text.includes("max://user/3"), "фото в личку — на проверку, больше не упоминаем", t.all(dmOf(3)).pop().text);
+    const before = t.all(-2).length;
+    await t.sendFile(5, "meme.jpg", "image", { chat: -2 });
+    t.ok(t.all(-2).length === before, "фото в чате без подписи про оплату — не чек, бот молчит");
+    await t.sendFile(5, "photo.jpg", "image", { chat: -2, caption: "чек" });
+    t.ok(/^🧾 Пятый: чек на ручной проверке/.test(t.all(-2).pop().text), "фото с подписью «чек» в чате — на проверку");
 
-    await t.sendFile(4, "receipt-1050.pdf");
-    const ask = t.all(dmOf(4)).pop();
-    t.ok(/^✅ Принято 1050 ₽: 350 ₽ за вас, ещё 700 ₽ — за кого\?/.test(ask.text) && t.buttons(ask).join("|") === "Рома — 350 ₽|Пятый — 350 ₽|Шестой — 700 ₽|Готово", "1050 ₽ — свои 350 и выбор, за кого ещё", t.buttons(ask));
-    await t.click(4, ask, "Пятый", { dm: true });
-    await t.click(4, ask, "Рома", { dm: true });
-    t.ok(/^✅ Готово: отмечены вы и Рома/.test(ask.text), "остаток распределён", ask.text);
-    t.ok(pay().text.includes("✅ Влад") && pay().text.includes("✅ Пятый") && pay().text.includes("✅ Рома") && pay().text.includes("Оплатили 4 из 5:"), "Влад, Пятый и Рома отмечены", pay().text);
-
-    await t.sendFile(6, "receipt-300.pdf");
-    t.ok(/^🧾 Чек не прошёл проверку: сумма 300 ₽ не кратна 350 ₽\. Передал админу/.test(t.all(dmOf(6)).pop().text) && pay().text.includes("⏳ Шестой — 700 ₽ (Шестой, Петя) — чек на проверке"), "300 ₽ — на ручную проверку", t.all(dmOf(6)).pop().text);
-    t.ok(t.dmTo(1).some((m) => /^🧾 На проверку: Шестой/.test(m.text) && /сумма 300 ₽/.test(m.text)), "админу пришло, почему");
-    await t.sendFile(6, "receipt-300.pdf");
-    t.ok(t.dmTo(1).some((m) => /этот чек уже присылали/.test(m.text)), "повторный чек — тоже на проверку");
+    // Влад: тот же PDF, что у Ruslan, — повтор; затем 300 — не та сумма.
+    await t.sendFile(4, "receipt-350.pdf");
+    t.ok(/этот чек уже присылали/.test(t.all(dmOf(4)).pop().text), "повторный чек — на проверку");
+    t.ok(t.dmTo(1).some((m) => /^🧾 На проверку: Влад/.test(m.text)), "админу пришло");
 
     await t.sendFile(2, "receipt-350-b.pdf");
     t.ok(/^Неоплаченных игр нет/.test(t.all(dmOf(2)).pop().text), "всё оплачено — так и отвечает");
@@ -66,9 +71,9 @@ module.exports = {
     t.ok(!!t.find(/Только для админов/, -2), "/должники — только админ");
     await t.say(1, "/должники", { chat: -2 });
     const debt = t.all(-2).pop().text;
-    t.ok(/^💰 Должники — [а-я]+ \d{4}: 1, на 700 ₽/.test(debt) && /\n1\. Шестой \(Шестой\) — 700 ₽, за: Шестой, Петя — \d\d\.\d\d · ⏳ чек на проверке/.test(debt), "/должники: имя (ник), сумма, дата игры, статус", debt);
-    await t.say(1, "/оплатил 1", { chat: -2 });
-    t.ok(/^✅ Отмечено как оплачено:\nШестой \(Шестой\) — 700 ₽/.test(t.all(-2).pop().text) && pay().text.includes("Оплатили 5 из 5:"), "/оплатил 1 — отмечен, список обновлён");
+    t.ok(/^💰 Должники — [а-я]+ \d{4}: 3, на 1050 ₽/.test(debt) && /\n1\. Рома \(Рома\) — 350 ₽ — \d\d\.\d\d · ⏳ чек на проверке/.test(debt), "/должники: имя (ник), сумма, дата игры, статус", debt);
+    await t.say(1, "/оплатил 1 2 3", { chat: -2 });
+    t.ok(/^✅ Отмечено как оплачено:\nРома \(Рома\) — 350 ₽/.test(t.all(-2).pop().text) && pay().text.includes("Оплатили 5 из 5:"), "/оплатил — наличные/проверено, список обновлён");
     await t.say(1, "/должники", { chat: -2 });
     t.ok(/^💰 Должников нет/.test(t.all(-2).pop().text), "должников нет");
     await t.say(1, "/должники");

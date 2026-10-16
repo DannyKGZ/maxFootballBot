@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS payments (
   players TEXT NOT NULL,                       -- JSON: за кого платит (имена)
   due INTEGER NOT NULL,                        -- сколько должен, ₽
   paid INTEGER NOT NULL DEFAULT 0,             -- сколько подтверждено, ₽
-  status TEXT NOT NULL DEFAULT 'unpaid',       -- unpaid | paid | review | wrong_file | manual
+  status TEXT NOT NULL DEFAULT 'unpaid',       -- unpaid | paid | review | manual
   note TEXT, updated_at INTEGER,
   UNIQUE (chat_id, game_date, payer_id)
 );

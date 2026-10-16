@@ -2,29 +2,25 @@ import { createHash } from "crypto";
 import { config } from "./config";
 import { db } from "./db";
 import * as api from "./maxApi";
-import { KeyboardButton } from "./maxApi";
 import {
   PaymentRow,
-  getRow,
-  isSettled,
-  ledgerRows,
   receiptsEnabled,
   refreshLedgerMessage,
   shortDate,
   updateRow,
 } from "./paymentLedger";
 import { getChatOptions, getPayment } from "./settingsStore";
-import { ButtonAction, MaxUser } from "./types";
+import { MaxUser } from "./types";
 
 /**
- * PDF-чек об оплате в личке с ботом. Бот находит неоплаченную игру этого
- * человека, читает текст PDF и проверяет:
- *  - получатель — телефон или имя из настроек чата (getChatOptions().receipts);
- *  - сумма кратна цене игры (350, 700, 1050 … ₽) — тогда оплачено сразу;
- *    заплатил больше, чем за своих, — бот предложит отметить, за кого ещё.
- * Иначе (другая сумма, другой получатель, не нашлась сумма, повторный чек) —
- * на ручную проверку админам. Не PDF — просьба прислать PDF. В обоих случаях
- * человека больше не упоминают в напоминаниях; в /должниках он остаётся.
+ * Чек об оплате — в чат (с проверкой чеков) или боту в личку:
+ *  - PDF: бот читает текст, проверяет получателя (телефон или имя из настроек
+ *    чата) и сумму: она должна быть равна «сколько человек записал в основу × цена»
+ *    (1 — 350 ₽, 2 — 700 ₽ …). Сошлось — оплачено (✅), иначе — ручная проверка;
+ *  - фото (или другой файл) — сразу ручная проверка;
+ * ручная проверка: админам в личку причина и файл, в списке «⏳ на проверке»,
+ * человека больше не упоминают. Наличные админ отмечает: /оплатил N.
+ * В общем чате фото считается чеком, только если в подписи есть «чек/оплат/перев».
  */
 
 interface Attachment {
@@ -85,147 +81,91 @@ async function notifyAdmins(row: PaymentRow, reason: string, file?: Attachment):
     await api.sendMessageToUser(id, { text }).catch(() => undefined);
     if (file?.payload?.token) {
       await api
-        .sendMessageToUser(id, { attachments: [{ type: "file", payload: { token: file.payload.token } } as never] })
+        .sendMessageToUser(id, { attachments: [{ type: file.type ?? "file", payload: { token: file.payload.token } } as never] })
         .catch(() => undefined);
     }
   }
 }
 
-const creditKey = (userId: number) => `rcpt_credit:${userId}`;
-
-function creditButtons(row: PaymentRow, left: number): KeyboardButton[][] {
-  const others = ledgerRows(row.chat_id, row.game_date).filter((r) => r.id !== row.id && !isSettled(r) && r.due - r.paid <= left);
-  const btn = (text: string, action: ButtonAction): KeyboardButton => ({ type: "callback", text, payload: JSON.stringify(action) });
-  return [...others.map((r) => [btn(`${r.payer_name} — ${r.due - r.paid} ₽`, { a: "rcpt_for", r: r.id })]), [btn("Готово", { a: "rcpt_done" })]];
+/** Неоплаченная строка этого человека в конкретном чате (самая свежая игра). */
+function openRowIn(chatId: number, userId: number): PaymentRow | undefined {
+  return db()
+    .prepare("SELECT * FROM payments WHERE chat_id = ? AND payer_id = ? AND status NOT IN ('paid', 'manual') ORDER BY game_date DESC LIMIT 1")
+    .get(chatId, userId) as PaymentRow | undefined;
 }
 
-/** Личка: пришли вложения (файл, фото…). true — обработано как чек. */
-export async function handleDmAttachments(dmChatId: number, user: MaxUser, attachments: unknown[]): Promise<boolean> {
-  const row = openRowFor(user.user_id);
-  const reply = (text: string, buttons?: KeyboardButton[][]) =>
-    api.sendMessageToChat(dmChatId, { text, attachments: buttons ? [{ type: "inline_keyboard", payload: { buttons } }] : undefined });
-  if (!row) {
-    await reply("Неоплаченных игр нет 👍");
-    return true;
-  }
-  const files = attachments as Attachment[];
-  console.log(`[receipts] ${user.user_id}: вложения ${JSON.stringify(files.map((f) => ({ type: f.type, filename: f.filename, keys: Object.keys(f.payload ?? {}) })))}`);
-  const pdf = files.find((a) => a.type === "file" && /\.pdf$/i.test(a.filename ?? ""));
-  if (!pdf) {
-    if (row.status === "unpaid") {
-      updateRow(row.id, { status: "wrong_file" });
-      await refreshLedgerMessage(row.chat_id, row.game_date);
-    }
-    await reply("Нужен PDF-чек: в банке откройте перевод → «Чек» (квитанция) → «Поделиться» → PDF сюда.");
-    console.log(`[receipts] ${user.user_id}: прислал не PDF (${files.map((a) => a.type).join(",")})`);
-    return true;
-  }
+async function downloadPdf(url: string): Promise<Uint8Array> {
+  let res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+  // Если ссылка MAX требует авторизации — повторяем с токеном бота.
+  if (res.status === 401 || res.status === 403) res = await fetch(url, { headers: { Authorization: config.botToken }, signal: AbortSignal.timeout(30_000) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  if (bytes.length > MAX_PDF_BYTES) throw new Error("файл больше 10 МБ");
+  return bytes;
+}
 
-  const expected = getChatOptions(row.chat_id).receipts!;
-  const unit = getPayment(row.chat_id).amount;
-  const toReview = async (reason: string) => {
-    updateRow(row.id, { status: "review", note: reason });
-    await refreshLedgerMessage(row.chat_id, row.game_date);
-    await notifyAdmins(row, reason, pdf);
-    await reply(`🧾 Чек не прошёл проверку: ${reason}. Передал админу, напоминаний больше не будет.`);
-    console.log(`[receipts] ${user.user_id}: на проверку — ${reason}`);
-  };
-
+/** Проверка PDF → null (оплачено) или причина для ручной проверки. */
+async function checkPdf(row: PaymentRow, pdf: Attachment, userId: number): Promise<string | null | "download_failed"> {
   let bytes: Uint8Array;
   try {
-    const url = pdf.payload?.url ?? "";
-    let res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
-    // Если ссылка MAX требует авторизации — повторяем с токеном бота.
-    if (res.status === 401 || res.status === 403) res = await fetch(url, { headers: { Authorization: config.botToken }, signal: AbortSignal.timeout(30_000) });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    bytes = new Uint8Array(await res.arrayBuffer());
-    if (bytes.length > MAX_PDF_BYTES) throw new Error("файл больше 10 МБ");
+    bytes = await downloadPdf(pdf.payload?.url ?? "");
   } catch (err) {
     console.warn("[receipts] не удалось скачать PDF:", err instanceof Error ? err.message : err);
-    await reply("Не удалось скачать файл — пришлите PDF ещё раз.");
-    return true;
+    return "download_failed";
   }
-
   const hash = createHash("sha256").update(bytes).digest("hex");
-  if (db().prepare("SELECT 1 FROM receipts WHERE hash = ?").get(hash)) {
-    await toReview("этот чек уже присылали");
-    return true;
-  }
+  if (db().prepare("SELECT 1 FROM receipts WHERE hash = ?").get(hash)) return "этот чек уже присылали";
   let text = "";
   try {
     text = await pdfText(bytes);
   } catch (err) {
     console.warn("[receipts] не удалось прочитать PDF:", err instanceof Error ? err.message : err);
   }
-  if (!text.trim()) return (await toReview("в PDF нет текста (скан?)"), true);
-  db().prepare("INSERT OR IGNORE INTO receipts (hash, chat_id, payer_id, at) VALUES (?, ?, ?, ?)").run(hash, row.chat_id, user.user_id, Date.now());
-
-  if (!recipientMatches(text, expected)) return (await toReview("получатель не совпадает"), true);
+  if (!text.trim()) return "в PDF нет текста (скан?)";
+  db().prepare("INSERT OR IGNORE INTO receipts (hash, chat_id, payer_id, at) VALUES (?, ?, ?, ?)").run(hash, row.chat_id, userId, Date.now());
+  if (!recipientMatches(text, getChatOptions(row.chat_id).receipts!)) return "получатель не совпадает";
   const amount = findAmount(text);
-  if (amount === null) return (await toReview("не нашёл сумму"), true);
-  if (amount <= 0 || amount % unit !== 0) return (await toReview(`сумма ${amount} ₽ не кратна ${unit} ₽`), true);
+  if (amount === null) return "не нашёл сумму";
+  const players = (JSON.parse(row.players) as string[]).length;
+  if (amount !== row.due) return `сумма ${amount} ₽, нужно ${row.due} ₽ (${players} × ${getPayment(row.chat_id).amount} ₽)`;
+  return null;
+}
 
-  // Сумма кратна цене игры — засчитываем: сначала свой долг, остаток — за других.
-  const paid = Math.min(row.due, row.paid + amount);
-  let left = row.paid + amount - paid;
-  updateRow(row.id, { status: paid >= row.due ? "paid" : "unpaid", paid, note: null });
-  await refreshLedgerMessage(row.chat_id, row.game_date);
-  console.log(`[receipts] ${user.user_id}: чек на ${amount} ₽ принят (игра ${row.game_date})`);
-  if (paid < row.due) {
-    await reply(`✅ Принято ${amount} ₽. Осталось ${row.due - paid} ₽ — пришлите ещё чек.`);
+/**
+ * Вложения от человека: в личке (`inGroup` = false) или в общем чате. true — это
+ * был чек и бот ответил; false — не чек (в общем чате бот молчит).
+ */
+export async function handleReceipt(chatId: number, user: MaxUser, attachments: unknown[], inGroup: boolean, caption = ""): Promise<boolean> {
+  const files = attachments as Attachment[];
+  const pdf = files.find((a) => a.type === "file" && /\.pdf$/i.test(a.filename ?? ""));
+  // В общем чате фото — не обязательно чек: считаем чеком только с подписью про оплату.
+  if (inGroup && !pdf && !/чек|оплат|перев/i.test(caption)) return false;
+  const row = inGroup ? openRowIn(chatId, user.user_id) : openRowFor(user.user_id);
+  const reply = (text: string) => api.sendMessageToChat(chatId, { text });
+  const who = inGroup ? `${user.first_name.trim()}: ` : "";
+  if (!row) {
+    if (inGroup) return false;
+    await reply("Неоплаченных игр нет 👍");
     return true;
   }
-  if (left > 0) {
-    db().prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(creditKey(user.user_id), JSON.stringify({ rowId: row.id, left }));
-    const buttons = creditButtons(row, left);
-    if (buttons.length > 1) {
-      await reply(`✅ Принято ${amount} ₽: ${row.due} ₽ за вас, ещё ${left} ₽ — за кого?`, buttons);
-      return true;
-    }
-    left = 0;
+  console.log(`[receipts] ${user.user_id}: вложения ${JSON.stringify(files.map((f) => ({ type: f.type, filename: f.filename })))}`);
+
+  const reason = pdf ? await checkPdf(row, pdf, user.user_id) : "фото/файл вместо PDF — проверьте вручную";
+  if (reason === "download_failed") {
+    await reply(`${who}не удалось скачать файл — пришлите PDF ещё раз.`);
+    return true;
   }
-  await reply(`✅ Оплата ${amount} ₽ за игру ${shortDate(row.game_date)} принята.`);
+  if (reason) {
+    updateRow(row.id, { status: "review", note: reason });
+    await refreshLedgerMessage(row.chat_id, row.game_date);
+    await notifyAdmins(row, reason, pdf ?? files[0]);
+    await reply(`🧾 ${who}чек на ручной проверке (${reason}). Напоминаний больше не будет.`);
+    console.log(`[receipts] ${user.user_id}: на проверку — ${reason}`);
+    return true;
+  }
+  updateRow(row.id, { status: "paid", paid: row.due, note: null });
+  await refreshLedgerMessage(row.chat_id, row.game_date);
+  await reply(`✅ ${who}оплата ${row.due} ₽ за игру ${shortDate(row.game_date)} принята.`);
+  console.log(`[receipts] ${user.user_id}: чек на ${row.due} ₽ принят (игра ${row.game_date})`);
   return true;
-}
-
-export function isReceiptAction(action: ButtonAction): boolean {
-  return action.a === "rcpt_for" || action.a === "rcpt_done";
-}
-
-/** Кнопки «за кого ещё оплатил» в личке. */
-export async function handleReceiptAction(dmChatId: number, userId: number, action: ButtonAction, messageId?: string): Promise<string> {
-  const raw = db().prepare("SELECT value FROM meta WHERE key = ?").get(creditKey(userId)) as { value: string } | undefined;
-  const credit = raw ? (JSON.parse(raw.value) as { rowId: number; left: number }) : null;
-  const own = credit ? getRow(credit.rowId) : undefined;
-  const finish = async (text: string) => {
-    db().prepare("DELETE FROM meta WHERE key = ?").run(creditKey(userId));
-    if (messageId) await api.editMessage(dmChatId, messageId, { text, attachments: [] }).catch(() => undefined);
-  };
-  if (!credit || !own) return "Уже готово";
-  if (action.a === "rcpt_done") {
-    await finish(`✅ Готово${credit.left > 0 ? `, не распределено ${credit.left} ₽` : ""}.`);
-    return "Готово";
-  }
-  if (action.a !== "rcpt_for") return "Готово";
-  const other = getRow(action.r);
-  if (!other || other.chat_id !== own.chat_id || other.game_date !== own.game_date || isSettled(other)) return "Этот игрок уже отмечен";
-  const need = other.due - other.paid;
-  if (need > credit.left) return `Не хватает: за ${other.payer_name} нужно ${need} ₽, осталось ${credit.left} ₽`;
-  updateRow(other.id, { status: "paid", paid: other.due, note: `оплатил ${own.payer_name}` });
-  credit.left -= need;
-  await refreshLedgerMessage(own.chat_id, own.game_date);
-  if (credit.left <= 0) {
-    await finish(`✅ Готово: отмечены вы и ${other.payer_name}.`);
-    return `${other.payer_name} — оплачено`;
-  }
-  db().prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(creditKey(userId), JSON.stringify(credit));
-  if (messageId) {
-    await api
-      .editMessage(dmChatId, messageId, {
-        text: `✅ ${other.payer_name}. Ещё ${credit.left} ₽ — за кого?`,
-        attachments: [{ type: "inline_keyboard", payload: { buttons: creditButtons(own, credit.left) } }],
-      })
-      .catch(() => undefined);
-  }
-  return `${other.payer_name} — оплачено`;
 }

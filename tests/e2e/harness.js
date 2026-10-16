@@ -312,9 +312,9 @@ class Harness {
     await this.idle();
   }
 
-  /** Пользователь присылает боту в личку файл (PDF из tests/e2e/fixtures) или фото. */
-  async sendFile(uid, name, type = "file") {
-    const u = this.messageUpdate(uid, "", true);
+  /** Пользователь присылает файл (PDF из tests/e2e/fixtures) или фото — боту в личку или в чат (`chat`), с подписью `caption`. */
+  async sendFile(uid, name, type = "file", { chat, caption = "" } = {}) {
+    const u = chat ? this.messageUpdate(uid, caption, false, chat) : this.messageUpdate(uid, caption, true);
     u.message.body.attachments = [
       type === "file"
         ? { type: "file", filename: name, payload: { url: `http://127.0.0.1:${this.mock.port}/files/${name}`, token: `tok-${name}` } }

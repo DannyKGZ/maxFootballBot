@@ -48,7 +48,7 @@ function reminders(chatId: number): Block {
     ].filter(Boolean);
     out.push(`💰 Оплата ${payment.amount} ₽ с игрока основы: ${payment.details}. Напоминания каждый час ${when.join(" и ")}.`);
   }
-  if (opts.receipts) out.push("📄 После оплаты пришлите боту в личку PDF-чек — бот отметит оплату.");
+  if (opts.receipts) out.push("📄 После оплаты пришлите PDF-чек в чат или боту в личку: сумма = сколько вы записали × цена. Фото — на ручную проверку.");
   return out;
 }
 

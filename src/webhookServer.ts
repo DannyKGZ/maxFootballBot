@@ -25,6 +25,7 @@ import {
   remindersCommand,
 } from "./paymentLogic";
 import * as receipts from "./receiptLogic";
+import { receiptsEnabled } from "./paymentLedger";
 import * as scheduleLogic from "./scheduleLogic";
 import * as voteLogic from "./voteLogic";
 import { MaxUpdate, MaxUser } from "./types";
@@ -137,11 +138,10 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
   // Новое сообщение в группе (и фото/стикер без текста) — дележку/голосование опустим вниз (stickyLogic.ts).
   if (chatId && !dm) noteChatActivity(chatId);
 
-  // Файл/фото боту в личку — PDF-чек об оплате (receiptLogic.ts). Стикеры и прочее не считаем.
-  const files = (message.body?.attachments ?? []).filter((a) => ["file", "image", "video"].includes((a as { type?: string }).type ?? ""));
-  if (chatId && userId && dm && files.length) {
-    await receipts.handleDmAttachments(chatId, message.sender, files);
-    return;
+  // Чек об оплате: файл/фото боту в личку или в чат с проверкой чеков (receiptLogic.ts). Стикеры не считаем.
+  const files = (message.body?.attachments ?? []).filter((a) => ["file", "image"].includes((a as { type?: string }).type ?? ""));
+  if (chatId && userId && files.length && (dm || (isManagedChat(chatId) && receiptsEnabled(chatId)))) {
+    if (await receipts.handleReceipt(chatId, message.sender, files, !dm, text)) return;
   }
 
   if (!chatId || !userId || !text) return;
@@ -233,13 +233,6 @@ async function handleMessageCallback(update: MaxUpdate): Promise<void> {
 
   if (!action) {
     await api.answerCallback(chatId, callback.callback_id, { notification: "Готово" });
-    return;
-  }
-
-  // Личка после PDF-чека: «за кого ещё оплатил».
-  if (message?.recipient?.chat_type === "dialog" && receipts.isReceiptAction(action)) {
-    const notification = await receipts.handleReceiptAction(chatId, pressedByUserId, action, message.body?.mid);
-    await api.answerCallback(chatId, callback.callback_id, { notification });
     return;
   }
 

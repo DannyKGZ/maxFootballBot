@@ -13,7 +13,7 @@ import { FootballSession } from "./types";
  * оплате, упоминает только тех, кто ещё ничего не прислал. /должники — помесячно.
  */
 
-export type PayStatus = "unpaid" | "paid" | "review" | "wrong_file" | "manual";
+export type PayStatus = "unpaid" | "paid" | "review" | "manual";
 
 export interface PaymentRow {
   id: number;
@@ -83,10 +83,8 @@ function rowLine(r: PaymentRow): string {
       return `✅ ${name} — ${r.due} ₽${who}`;
     case "review":
       return `⏳ ${name} — ${r.due} ₽${who} — чек на проверке`;
-    case "wrong_file":
-      return `📎 ${name} — ${r.due} ₽${who} — ждём PDF-чек`;
     default:
-      return `❌ ${mention(r.payer_id, r.payer_profile)} — ${r.due} ₽${who}${r.paid ? ` (оплачено ${r.paid})` : ""}`;
+      return `❌ ${mention(r.payer_id, r.payer_profile)} — ${r.due} ₽${who}`;
   }
 }
 
@@ -96,7 +94,7 @@ export function buildLedgerText(chatId: number, gameDate: string): string {
   return [
     paymentHeader(chatId, gameDate),
     paymentDetailsLine(chatId),
-    "📄 Чек — <b>PDF-файлом</b> боту в личку, бот отметит оплату.",
+    "📄 Чек (PDF) — сюда в чат или боту в личку, бот отметит оплату.",
     "",
     `Оплатили ${rows.filter(isSettled).length} из ${rows.length}:`,
     ...rows.map(rowLine),
@@ -156,6 +154,6 @@ export function debtorLine(r: PaymentRow, i: number): string {
   const players = JSON.parse(r.players) as string[];
   const forWhom = players.length > 1 || players[0] !== r.payer_name ? `, за: ${players.join(", ")}` : "";
   const note =
-    r.status === "review" ? ` · ⏳ чек на проверке${r.note ? `: ${r.note}` : ""}` : r.status === "wrong_file" ? " · 📎 прислал не PDF" : r.paid ? ` · оплачено ${r.paid} из ${r.due}` : "";
+    r.status === "review" ? ` · ⏳ чек на проверке${r.note ? `: ${r.note}` : ""}` : "";
   return `${i + 1}. ${r.payer_name} (${r.payer_profile}) — ${r.due} ₽${forWhom} — ${shortDate(r.game_date)}${note}`;
 }
