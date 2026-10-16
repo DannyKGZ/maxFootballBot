@@ -46,7 +46,7 @@ module.exports = {
     // Шестой записал себя и Петю → должен 700 ₽. Чек на 1050 в общий чат — не та сумма, на проверку.
     await t.sendFile(6, "receipt-1050.pdf", "file", { chat: -2 });
     t.ok(/^🧾 Шестой: чек на ручной проверке \(сумма 1050 ₽, нужно 700 ₽ \(2 × 350 ₽\)\)/.test(t.all(-2).pop().text), "чек в чат: сумма не равна 2 × 350 — ручная проверка", t.all(-2).pop().text);
-    t.ok(t.dmTo(1).some((m) => /^🧾 На проверку: Шестой/.test(m.text) && /сумма 1050 ₽/.test(m.text)), "админу — причина");
+    t.ok(!t.dmTo(1).some((m) => /🧾/.test(m.text || "")), "админам в личку ничего не приходит");
     await t.sendFile(6, "receipt-700.pdf", "file", { chat: -2 });
     t.ok(/^✅ Шестой: оплата 700 ₽ за игру/.test(t.all(-2).pop().text) && pay().text.includes("✅ Шестой — 700 ₽ (Шестой, Петя)"), "PDF 700 ₽ в чат — за двоих, принят");
 
@@ -62,10 +62,21 @@ module.exports = {
     // Влад: тот же PDF, что у Ruslan, — повтор; затем 300 — не та сумма.
     await t.sendFile(4, "receipt-350.pdf");
     t.ok(/этот чек уже присылали/.test(t.all(dmOf(4)).pop().text), "повторный чек — на проверку");
-    t.ok(t.dmTo(1).some((m) => /^🧾 На проверку: Влад/.test(m.text)), "админу пришло");
 
     await t.sendFile(2, "receipt-350-b.pdf");
     t.ok(/^Неоплаченных игр нет/.test(t.all(dmOf(2)).pop().text), "всё оплачено — так и отвечает");
+
+    // Админ запрашивает должников и чеки кнопкой в личке (панель — по «Лиге»: админ состоит только в ней).
+    t.mock.state.chatMembers = { "-1": [2, 3, 4, 5, 6], "-2": [1, 2, 3, 4, 5, 6] };
+    await t.botStarted(1);
+    const panel = t.find(/Панель администратора/, dmOf(1));
+    t.ok(panel && t.buttons(panel)[0] === "💰 Должники и чеки", "в панели «Лиги» — кнопка «💰 Должники и чеки»", panel && t.buttons(panel));
+    await t.click(1, panel, "💰 Должники и чеки", { dm: true });
+    const dm1 = t.dmTo(1);
+    const list = dm1.find((m) => /^💰 Должники/.test(m.text || ""));
+    t.ok(list && /\n1\. Рома \(Рома\)/.test(list.text), "в личке — список должников", list && list.text);
+    const tokens = dm1.flatMap((m) => (m.attachments || []).map((a) => a.payload && a.payload.token)).filter(Boolean);
+    t.ok(dm1.some((m) => /^🧾 1\. Рома — чек \(фото/.test(m.text || "")) && tokens.includes("img") && tokens.includes("tok-receipt-350.pdf"), "под списком — файлы чеков на проверке", tokens);
 
     await t.say(3, "/должники", { chat: -2 });
     t.ok(!!t.find(/Только для админов/, -2), "/должники — только админ");

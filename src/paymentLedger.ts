@@ -27,6 +27,8 @@ export interface PaymentRow {
   paid: number;
   status: PayStatus;
   note: string | null;
+  file_type: string | null; // чек на ручной проверке (вложение MAX)
+  file_token: string | null;
 }
 
 export const receiptsEnabled = (chatId: number) => Boolean(getChatOptions(chatId).receipts);
@@ -63,13 +65,13 @@ export function ensureLedger(session: FootballSession): PaymentRow[] {
   return ledgerRows(session.chatId, session.date);
 }
 
-export function updateRow(id: number, patch: Partial<Pick<PaymentRow, "status" | "paid" | "note">>): void {
+export function updateRow(id: number, patch: Partial<Pick<PaymentRow, "status" | "paid" | "note" | "file_type" | "file_token">>): void {
   const row = getRow(id);
   if (!row) return;
   const next = { ...row, ...patch };
   db()
-    .prepare("UPDATE payments SET status = ?, paid = ?, note = ?, updated_at = ? WHERE id = ?")
-    .run(next.status, next.paid, next.note, Date.now(), id);
+    .prepare("UPDATE payments SET status = ?, paid = ?, note = ?, file_type = ?, file_token = ?, updated_at = ? WHERE id = ?")
+    .run(next.status, next.paid, next.note, next.file_type ?? null, next.file_token ?? null, Date.now(), id);
 }
 
 /** Строка участника в списке оплаты. Упоминаем только тех, от кого ещё ничего нет. */

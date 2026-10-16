@@ -1,3 +1,6 @@
+import { KeyboardButton } from "./maxApi";
+import { receiptsEnabled } from "./paymentLedger";
+import { sendDebtorsWithReceipts } from "./paymentLogic";
 import { config } from "./config";
 import * as api from "./maxApi";
 import { adminConfirmKeyboard, adminKeyboard, userMenuKeyboard } from "./keyboard";
@@ -44,7 +47,11 @@ export async function sendPanel(dmChatId: number, userId: number): Promise<void>
     await api.sendMessageToChat(dmChatId, { text: header + buildUserWelcome(group, userId), attachments: [userMenuKeyboard(switchRow)] });
     return;
   }
-  await api.sendMessageToChat(dmChatId, { text: await statusText(group), attachments: [adminKeyboard(switchRow)] });
+  // Чат с проверкой чеков — кнопка «💰 Должники и чеки».
+  const debtorsRow: KeyboardButton[][] = receiptsEnabled(group)
+    ? [[{ type: "callback", text: "💰 Должники и чеки", payload: JSON.stringify({ a: "adm_debtors" }) }]]
+    : [];
+  await api.sendMessageToChat(dmChatId, { text: await statusText(group), attachments: [adminKeyboard([...switchRow, ...debtorsRow])] });
 }
 
 /** Опасное действие при непустой записи — спрашиваем в личке, а не в группе. */
@@ -150,6 +157,10 @@ export async function handlePanelAction(
     case "adm_edit":
       await openEditor(dmChatId, group);
       return "Редактор списка ниже";
+
+    case "adm_debtors":
+      await sendDebtorsWithReceipts(group, dmChatId, userId);
+      return "Список ниже";
 
     case "adm_merge": {
       const names = getMvpRating(group).map((e) => `${e.name} — ${e.count} (сезон: ${e.season})`);

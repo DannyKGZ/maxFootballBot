@@ -18,8 +18,8 @@ import { MaxUser } from "./types";
  *    чата) и сумму: она должна быть равна «сколько человек записал в основу × цена»
  *    (1 — 350 ₽, 2 — 700 ₽ …). Сошлось — оплачено (✅), иначе — ручная проверка;
  *  - фото (или другой файл) — сразу ручная проверка;
- * ручная проверка: админам в личку причина и файл, в списке «⏳ на проверке»,
- * человека больше не упоминают. Наличные админ отмечает: /оплатил N.
+ * ручная проверка: в списке «⏳ на проверке», человека больше не упоминают;
+ * админ смотрит чеки кнопкой «💰 Должники и чеки» в личке и отмечает /оплатил N.
  * В общем чате фото считается чеком, только если в подписи есть «чек/оплат/перев».
  */
 
@@ -67,24 +67,6 @@ export function recipientMatches(text: string, expected: { phone: string; recipi
   if (phone && digits.includes(phone)) return true;
   const norm = (s: string) => s.toLowerCase().replace(/ё/g, "е").replace(/\s+/g, " ").trim();
   return Boolean(expected.recipient) && norm(text).includes(norm(expected.recipient));
-}
-
-async function notifyAdmins(row: PaymentRow, reason: string, file?: Attachment): Promise<void> {
-  let admins: number[] = [];
-  try {
-    admins = (await api.getChatAdmins(row.chat_id)).members.filter((m) => !m.is_bot).map((m) => m.user_id);
-  } catch {
-    return;
-  }
-  const text = `🧾 На проверку: ${row.payer_name} (${row.payer_profile}), игра ${shortDate(row.game_date)}, долг ${row.due} ₽.\nПричина: ${reason}.\nОплата верна — /должники, затем /оплатил <номер>.`;
-  for (const id of admins.filter((a) => a !== row.payer_id)) {
-    await api.sendMessageToUser(id, { text }).catch(() => undefined);
-    if (file?.payload?.token) {
-      await api
-        .sendMessageToUser(id, { attachments: [{ type: file.type ?? "file", payload: { token: file.payload.token } } as never] })
-        .catch(() => undefined);
-    }
-  }
 }
 
 /** Неоплаченная строка этого человека в конкретном чате (самая свежая игра). */
@@ -156,9 +138,9 @@ export async function handleReceipt(chatId: number, user: MaxUser, attachments: 
     return true;
   }
   if (reason) {
-    updateRow(row.id, { status: "review", note: reason });
+    const file = pdf ?? files[0];
+    updateRow(row.id, { status: "review", note: reason, file_type: file?.type ?? null, file_token: file?.payload?.token ?? null });
     await refreshLedgerMessage(row.chat_id, row.game_date);
-    await notifyAdmins(row, reason, pdf ?? files[0]);
     await reply(`🧾 ${who}чек на ручной проверке (${reason}). Напоминаний больше не будет.`);
     console.log(`[receipts] ${user.user_id}: на проверку — ${reason}`);
     return true;

@@ -92,6 +92,12 @@ function upgradeSchema(d: Database.Database): void {
     d.exec("UPDATE mvp_players SET season_count = count");
     console.log("[db] в рейтинг MVP добавлен сезонный счёт (прошлые победы засчитаны в текущий сезон)");
   }
+  const payCols = d.prepare("PRAGMA table_info(payments)").all() as Array<{ name: string }>;
+  if (!payCols.some((c) => c.name === "file_token")) {
+    // Чек на ручной проверке: тип вложения MAX и его token — админ запросит файл кнопкой в личке.
+    d.exec("ALTER TABLE payments ADD COLUMN file_type TEXT");
+    d.exec("ALTER TABLE payments ADD COLUMN file_token TEXT");
+  }
   if (!cols.some((c) => c.name === "year_count")) {
     // Счёт игрового года: бот работает с осени 2026 — все прошлые победы относятся к текущему году.
     d.exec("ALTER TABLE mvp_players ADD COLUMN year_count INTEGER NOT NULL DEFAULT 0");

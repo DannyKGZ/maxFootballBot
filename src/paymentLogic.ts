@@ -1,3 +1,4 @@
+import * as api from "./maxApi";
 import { NOT_ADMIN } from "./format";
 import { debtorLine, debtors, getRow, parseMonth, receiptsEnabled, refreshLedgerMessage, shortDate, updateRow } from "./paymentLedger";
 import { applyMaxPlayers, isChatAdmin } from "./sessionLogic";
@@ -135,4 +136,22 @@ export async function paidCommand(groupChatId: number, userId: number, arg?: str
   for (const g of games) await refreshLedgerMessage(groupChatId, g);
   return `✅ Отмечено как оплачено:\n${done.join("\n")}
 Номера в /должники сдвинулись.`;
+}
+
+/**
+ * Кнопка «💰 Должники и чеки» и /должники в личке админа: список, а под ним —
+ * файлы чеков на ручной проверке (с номером из списка — для /оплатил).
+ */
+export async function sendDebtorsWithReceipts(groupChatId: number, dmChatId: number, userId: number, arg?: string): Promise<void> {
+  await api.sendMessageToChat(dmChatId, { text: await debtorsCommand(groupChatId, userId, arg) });
+  const shown = lastShown.get(shownKey(groupChatId, userId));
+  if (!shown || !(await isChatAdmin(groupChatId, userId))) return;
+  for (const [i, id] of shown.rows.entries()) {
+    const row = getRow(id);
+    if (!row?.file_token) continue;
+    await api.sendMessageToChat(dmChatId, { text: `🧾 ${i + 1}. ${row.payer_name} — чек (${row.note ?? "на проверке"}):` });
+    await api
+      .sendMessageToChat(dmChatId, { attachments: [{ type: row.file_type ?? "file", payload: { token: row.file_token } } as never] })
+      .catch((err) => console.warn("[payments] не удалось переслать чек:", err instanceof Error ? err.message : err));
+  }
 }
