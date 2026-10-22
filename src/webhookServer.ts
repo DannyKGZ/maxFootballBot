@@ -67,7 +67,14 @@ const TEXT_COMMANDS: TextCommand[] = [
   { re: VOTE_RE, where: "group", run: (c) => voteLogic.voteCommand(c.group, c.userId) },
   { re: draft.DRAFT_RE, where: "group", run: (c, m) => draft.draftCommand(c.group, c.userId, m[2]) },
   { re: draft.TEAMS_RE, where: "group", run: async (c) => draft.teamsCommand(c.group) },
-  { re: rosterEdit.REMOVE_RE, run: (c, m) => rosterEdit.removeCommand(c.group, c.userId, m[2]) },
+  // В чате об удалении и так пишет сам список («➖ … убран админом») — ответ только в личке или при ошибке.
+  {
+    re: rosterEdit.REMOVE_RE,
+    run: async (c, m) => {
+      const r = await rosterEdit.removeCommand(c.group, c.userId, m[2]);
+      return c.dm || !r.startsWith("✅") ? r : null;
+    },
+  },
   { re: rosterEdit.SWAP_RE, run: (c, m) => rosterEdit.swapCommand(c.group, c.userId, m[2], m[3]) },
   { re: rosterEdit.RENAME_RE, run: (c, m) => rosterEdit.renameCommand(c.group, c.userId, m[2], m[3]) },
   { re: DESCRIPTION_RE, run: (c, m) => handleDescription(c.group, c.userId, m[2]) },
@@ -364,9 +371,6 @@ async function handleMessageCallback(update: MaxUpdate): Promise<void> {
   }
 
   switch (action.a) {
-    case "remove_yes":
-      await sessionLogic.handleRemoveYes(chatId, pressedByUserId);
-      break;
     case "remove_no":
       await sessionLogic.handleRemoveNo(chatId, pressedByUserId);
       break;

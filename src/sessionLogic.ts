@@ -7,7 +7,6 @@ import * as api from "./maxApi";
 import {
   rosterKeyboard,
   confirmCloseKeyboard,
-  confirmRemoveKeyboard,
   removeChoiceKeyboard,
   confirmRestartKeyboard,
 } from "./keyboard";
@@ -15,7 +14,6 @@ import { buildRosterText, fullName } from "./messageFormatter";
 import {
   clearPendingAction,
   deleteSession,
-  getPendingAction,
   getSession,
   setArchivedSession,
   setPendingAction,
@@ -336,20 +334,26 @@ async function addPlayers(
  * Удаляет запись и обновляет список. Если из-за этого кто-то перешёл из
  * резерва в основу — сообщаем в чат, чтобы он (или записавший его) узнал.
  */
-async function removePlayerAt(session: FootballSession, index: number): Promise<void> {
+async function removePlayerAt(session: FootballSession, index: number, byAdmin = false): Promise<void> {
   const wasReserve = new Set(session.players.filter((p) => p.isReserve));
   const [removed] = session.players.splice(index, 1);
   recomputeReserveFlags(session);
 
-  // Сначала — кто поднялся из резерва, потом свежий список: он должен быть последним в чате.
-  // «⬆️ Янис заменил Рому» — кто ушёл из основы и кто занял его место.
-  const promoted = session.players.filter((p) => wasReserve.has(p) && !p.isReserve);
-  for (const p of promoted) {
+  // Сначала — кто ушёл и кто поднялся из резерва, потом свежий список (он должен быть последним в чате):
+  //   ➖ Рома ушёл из записи
+  //   ⬆️ Янис заменил Рому (из резерва)
+  const reserveTag = removed.isReserve ? " (резерв)" : "";
+  const whoLeft = byAdmin
+    ? `➖ ${removed.displayName}${reserveTag} убран из записи админом`
+    : removed.profileName || !removed.addedByName
+      ? `➖ ${removed.displayName}${reserveTag} ушёл из записи`
+      : `➖ ${removed.displayName}${reserveTag} убран из записи (записывал ${removed.addedByName})`;
+  const lines = [whoLeft];
+  for (const p of session.players.filter((x) => wasReserve.has(x) && !x.isReserve)) {
     const by = p.addedByName && p.addedByName !== p.displayName ? ` (записал ${p.addedByName})` : "";
-    await api.sendMessageToChat(session.chatId, {
-      text: `⬆️ ${p.displayName}${by} заменил ${accusativeName(removed.displayName)}`,
-    });
+    lines.push(`⬆️ ${p.displayName}${by} заменил ${accusativeName(removed.displayName)} (из резерва)`);
   }
+  await api.sendMessageToChat(session.chatId, { text: lines.join("\n") });
   await repostRoster(session);
 }
 
@@ -437,26 +441,19 @@ export async function handleMinusCommand(
     return;
   }
 
-  // Кандидаты на удаление: записи с указанным именем, а без имени/совпадения — все свои.
-  const named = name
-    ? own.filter((p) => p.displayName.toLowerCase() === name.toLowerCase())
-    : [];
-  const candidates = named.length ? named : own;
-
-  if (candidates.length === 1) {
-    const targetName = candidates[0].displayName;
-    setPendingAction({ type: "confirm_remove", chatId, userId, createdAt: Date.now(), targetName });
-    await api.sendMessageToChat(chatId, {
-      text: `Удалить из списка: ${targetName}?`,
-      attachments: [confirmRemoveKeyboard(userId)],
-    });
+  // Без переспроса: «-» / «➖ Убрать себя» — своя запись, «-Петя» — записанный вами Петя.
+  const named = name ? own.filter((p) => p.displayName.toLowerCase() === name.toLowerCase()) : [];
+  const self = name ? undefined : own.find((p) => p.profileName);
+  const target = named[0] ?? self ?? (own.length === 1 ? own[0] : undefined);
+  if (target) {
+    await removePlayerAt(session, session.players.indexOf(target));
     return;
   }
 
-  // Несколько своих записей (себя + друзей) — даём выбрать, кого убрать.
+  // Сам не записан, а записал нескольких (или такого имени нет) — даём выбрать, кого убрать.
   await api.sendMessageToChat(chatId, {
-    text: "Кого удалить из списка?",
-    attachments: [removeChoiceKeyboard(userId, candidates.map((p) => p.displayName))],
+    text: "Кого убрать из записи?",
+    attachments: [removeChoiceKeyboard(userId, own.map((p) => p.displayName))],
   });
 }
 
@@ -476,22 +473,6 @@ export async function handleRemovePick(chatId: number, userId: number, name: str
 }
 
 // ---- Обработка нажатий на инлайн-кнопки ----
-
-export async function handleRemoveYes(chatId: number, userId: number): Promise<void> {
-  const targetName = getPendingAction(chatId, userId)?.targetName;
-  clearPendingAction(chatId, userId);
-  const session = getSession(chatId);
-  if (!session) return;
-  if (!isSignupOpen(session)) {
-    await api.sendMessageToChat(chatId, { text: signupClosedText(session) });
-    return;
-  }
-
-  const index = findOwnIndex(session, userId, targetName);
-  if (index === -1) return;
-
-  await removePlayerAt(session, index);
-}
 
 export async function handleRemoveNo(chatId: number, userId: number): Promise<void> {
   clearPendingAction(chatId, userId);
@@ -591,8 +572,19 @@ export async function joinSelf(groupChatId: number, sender: MaxUser): Promise<Jo
 }
 
 /** Имена записей, сделанных этим пользователем (для выбора «кого убрать» в личке). */
-export function ownEntries(groupChatId: number, userId: number): string[] {
-  return getSession(groupChatId)?.players.filter((p) => p.userId === userId).map((p) => p.displayName) ?? [];
+/**
+ * «➖ Убрать себя» в личке — без переспроса: своя запись (или единственная).
+ * Если сам не записан, а записал нескольких — их имена для выбора.
+ */
+export async function leaveSelf(groupChatId: number, userId: number): Promise<{ removed?: string; choose?: string[]; closed?: boolean }> {
+  const session = getSession(groupChatId);
+  const own = session?.players.filter((p) => p.userId === userId) ?? [];
+  if (!session || own.length === 0) return {};
+  if (!isSignupOpen(session)) return { closed: true };
+  const target = own.find((p) => p.profileName) ?? (own.length === 1 ? own[0] : undefined);
+  if (!target) return { choose: own.map((p) => p.displayName) };
+  await removePlayerAt(session, session.players.indexOf(target));
+  return { removed: target.displayName };
 }
 
 /** Убрать свою запись по имени (выбор в личке); false — такой записи уже нет. */
@@ -626,7 +618,7 @@ export function findPlayerIndex(session: FootballSession, ref: string): number {
 /** Админ убирает любого игрока (и после начала игры — чтобы поправить итоговый состав). */
 export async function adminRemoveAt(session: FootballSession, index: number): Promise<string> {
   const name = session.players[index].displayName;
-  await removePlayerAt(session, index);
+  await removePlayerAt(session, index, true);
   return name;
 }
 

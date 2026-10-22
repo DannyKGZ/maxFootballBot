@@ -11,7 +11,7 @@ module.exports = {
     await t.say(3, "+Петя +Коля");
     t.ok(t.lines(t.roster()).length === 3, "команды доходят через GET /updates", t.lines(t.roster()));
     await t.click(3, t.roster(), "➖ Убрать себя");
-    await t.click(3, t.find(/Кого удалить/), "Коля");
+    await t.click(3, t.find(/Кого убрать/), "Коля");
     t.ok(t.lines(t.roster()).length === 2 && !t.lines(t.roster()).some((l) => l.includes("Коля")), "кнопки тоже работают");
 
     const before = t.lines(t.roster()).length;

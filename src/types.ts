@@ -39,7 +39,6 @@ export interface Draft {
 }
 
 export type PendingActionType =
-  | "confirm_remove" // "Вы хотите удалить своё бронирование?"
   | "confirm_restart_session" // "Уже идёт запись на N человек, точно начать новую?" (только админы)
   | "confirm_close_session"; // "Точно закрыть запись без открытия новой?" (только админы)
 
@@ -156,7 +155,6 @@ export interface MaxUpdate {
 
 // Payload инлайн-кнопок, которые генерирует бот (см. src/keyboard.ts)
 export type ButtonAction =
-  | { a: "remove_yes"; u: number }
   | { a: "remove_no"; u: number }
   | { a: "rm_pick"; u: number; n: string } // выбор, кого из своих записей удалить (n = имя игрока)
   | { a: "admin_restart" } // кнопка в самом списке — доступна всем, право проверяется на сервере

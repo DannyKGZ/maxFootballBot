@@ -19,21 +19,6 @@ function callbackButton(text: string, action: ButtonAction): KeyboardButton {
   return { type: "callback", text, payload: encodePayload(action) };
 }
 
-/** «Вы хотите удалить своё бронирование?» [Да] [Нет] */
-export function confirmRemoveKeyboard(userId: number): InlineKeyboardAttachment {
-  return {
-    type: "inline_keyboard",
-    payload: {
-      buttons: [
-        [
-          callbackButton("Да", { a: "remove_yes", u: userId }),
-          callbackButton("Нет", { a: "remove_no", u: userId }),
-        ],
-      ],
-    },
-  };
-}
-
 /** «Кого удалить из списка?» — по кнопке на каждую запись пользователя + «Отмена». */
 export function removeChoiceKeyboard(userId: number, names: string[]): InlineKeyboardAttachment {
   return {

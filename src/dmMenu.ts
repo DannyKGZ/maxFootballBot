@@ -2,7 +2,7 @@ import * as actions from "./actions";
 import * as api from "./maxApi";
 import { dmRemoveKeyboard, userMenuKeyboard } from "./keyboard";
 import { buildMvpRatingText } from "./messageFormatter";
-import { joinSelf, ownEntries, removeOwnByName, setOwnNickname } from "./sessionLogic";
+import { joinSelf, leaveSelf, removeOwnByName, setOwnNickname } from "./sessionLogic";
 import { getMvpRating, getNickname, getSeasonStart } from "./settingsStore";
 import { buildStatusText } from "./statusInfo";
 import { chatChoiceRows, chatSwitchRow, chatTitle, dmTarget, setDmTarget, userChats } from "./dmTarget";
@@ -72,12 +72,12 @@ export async function handleDmUserAction(
       return "✅ Вы записаны";
     }
     case "leave": {
-      const names = ownEntries(group, user.user_id);
-      if (names.length === 0) return "Вас нет в записи";
-      await api.sendMessageToChat(dmChatId, {
-        text: names.length === 1 ? `Убрать из записи: ${names[0]}?` : "Кого убрать из записи?",
-        attachments: [dmRemoveKeyboard(user.user_id, names)],
-      });
+      // Без переспроса; выбор — только если сам не записан, а записал нескольких.
+      const res = await leaveSelf(group, user.user_id);
+      if (res.closed) return "🔒 Запись закрыта — игра началась, состав меняет админ";
+      if (res.removed) return `➖ Убрано из записи: ${res.removed}`;
+      if (!res.choose) return "Вас нет в записи";
+      await api.sendMessageToChat(dmChatId, { text: "Кого убрать из записи?", attachments: [dmRemoveKeyboard(user.user_id, res.choose)] });
       return "Выберите ниже";
     }
     case "dm_rm": {
