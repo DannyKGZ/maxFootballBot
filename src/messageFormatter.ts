@@ -62,8 +62,8 @@ export function buildRosterText(session: FootballSession): string {
   const lines = session.players.map((player, index) => {
     const number = index + 1;
     const reserveTag = player.isReserve ? " (Резерв)" : "";
-    const fullName = player.lastName ? `${player.displayName} ${player.lastName}` : player.displayName;
-    return `${number}. ${fullName}${roleTag(session, player)}${reserveTag}`;
+    // Только имя (или своё имя из /имя) — фамилия из профиля MAX в списке не нужна.
+    return `${number}. ${player.displayName}${roleTag(session, player)}${reserveTag}`;
   });
 
   return `${header}\n\n${lines.join("\n")}`;

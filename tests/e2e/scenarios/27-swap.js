@@ -25,5 +25,9 @@ module.exports = {
     t.ok(!!t.find(/Укажите два разных номера из списка \(1–3\)/), "номер вне списка — подсказка");
     await t.say(1, "/поменять 2 на 1", { dm: true });
     t.ok(!!t.find(/Поменял местами/, dmOf(1)) && t.lines(t.roster())[0].startsWith("1. Ruslan"), "из лички — тоже работает");
+    const before = t.lines(t.roster());
+    await t.say(1, "/заменить 1 на 2");
+    const after = t.lines(t.roster());
+    t.ok(after[0].slice(3) === before[1].slice(3) && after[1].slice(3) === before[0].slice(3) && !after.some((l) => l.includes("на 2")), "«/заменить 1 на 2» — меняет местами, а не переименовывает в «на 2»", after);
   },
 };

@@ -37,7 +37,7 @@ function rosterLines(session: FootballSession): string[] {
   const reserve = session.players.filter((p) => p.isReserve);
   const max = getMaxPlayers(session.chatId);
   const free = Math.max(0, max - main.length);
-  const name = (p: FootballSession["players"][number]) => (p.lastName ? `${p.displayName} ${p.lastName}` : p.displayName);
+  const name = (p: FootballSession["players"][number]) => p.displayName;
   const lines = [
     "",
     `Основа ${main.length}/${max}${free ? `, свободно ${free}` : ", мест нет"}:`,
