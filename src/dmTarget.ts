@@ -34,23 +34,35 @@ async function isMember(chatId: number, userId: number): Promise<boolean> {
   const key = `${chatId}:${userId}`;
   const hit = membership.get(key);
   if (hit && Date.now() - hit.at < MEMBERSHIP_TTL_MS) return hit.member;
-  let member = false;
   try {
-    member = await api.isChatMember(chatId, userId);
+    const member = await api.isChatMember(chatId, userId);
+    membership.set(key, { member, at: Date.now() });
+    return member;
   } catch (err) {
+    // Ошибку не кэшируем: при следующем обращении проверим снова.
     console.warn(`[dmTarget] не удалось проверить участника ${userId} в чате ${chatId}:`, err instanceof Error ? err.message : err);
+    return false;
   }
-  membership.set(key, { member, at: Date.now() });
-  return member;
 }
 
-/** Чаты бота, в которых состоит человек (при одном чате — без запроса к MAX). */
+/** Чаты бота, в которых состоит человек. */
 export async function userChats(userId: number): Promise<number[]> {
-  if (config.chatIds.length <= 1) return [...config.chatIds];
   const result: number[] = [];
   for (const chatId of config.chatIds) if (await isMember(chatId, userId)) result.push(chatId);
   return result;
 }
+
+/**
+ * Личка с ботом — только для участников чатов бота. Чужому человеку бот отвечает
+ * отказом и пишет попытку в лог. true — можно продолжать.
+ */
+export async function dmAllowed(userId: number, userName = ""): Promise<boolean> {
+  if ((await userChats(userId)).length) return true;
+  console.log(`[dm] отказ: ${userName || "без имени"} (user_id=${userId}) не состоит ни в одном чате бота`);
+  return false;
+}
+
+export const DM_DENIED = "Бот работает только для участников футбольных чатов. Вступите в чат — и запись станет доступна.";
 
 const keyOf = (userId: number) => `dm_target:${userId}`;
 

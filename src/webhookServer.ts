@@ -8,7 +8,7 @@ import * as adminPanel from "./adminPanel";
 import { buildStatusText } from "./statusInfo";
 import { NICK_RE, handleAwaitedNick, handleDmUserAction, isDmUserAction, nickCommand } from "./dmMenu";
 import * as rosterEdit from "./rosterEdit";
-import { dmTarget } from "./dmTarget";
+import { DM_DENIED, dmAllowed, dmTarget } from "./dmTarget";
 import * as draft from "./draftLogic";
 import { DESCRIPTION_RE, handleDescription } from "./descriptionLogic";
 import { GAMES_RE, gamesCommand } from "./gameSlotsLogic";
@@ -144,6 +144,12 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
   const text = (message.body?.text || "").trim();
   const dm = message.recipient?.chat_type === "dialog";
 
+  // Личка — только для участников чатов бота (dmTarget.ts).
+  if (dm && chatId && userId && !(await dmAllowed(userId, message.sender?.name ?? message.sender?.first_name))) {
+    await api.sendMessageToChat(chatId, { text: DM_DENIED });
+    return;
+  }
+
   // Новое сообщение в группе (и фото/стикер без текста) — дележку/голосование опустим вниз (stickyLogic.ts).
   if (chatId && !dm) noteChatActivity(chatId);
 
@@ -237,6 +243,11 @@ async function handleMessageCallback(update: MaxUpdate): Promise<void> {
 
   if (message?.recipient?.chat_type !== "dialog" && !isManagedChat(chatId)) {
     await api.answerCallback(chatId, callback.callback_id, { notification: "Этот чат бот больше не ведёт" });
+    return;
+  }
+
+  if (message?.recipient?.chat_type === "dialog" && !(await dmAllowed(pressedByUserId, callback.user.name ?? callback.user.first_name))) {
+    await api.answerCallback(chatId, callback.callback_id, { notification: DM_DENIED });
     return;
   }
 
@@ -426,8 +437,11 @@ export async function handleUpdate(update: MaxUpdate): Promise<void> {
   try {
     if (update.update_type === "bot_started") {
       // Пользователь открыл личный чат с ботом и нажал «Начать» — приветствие/панель.
-      const started = update as { chat_id?: number; user?: { user_id: number } };
-      if (started.chat_id && started.user) await adminPanel.sendPanel(started.chat_id, started.user.user_id);
+      const started = update as { chat_id?: number; user?: { user_id: number; name?: string } };
+      if (started.chat_id && started.user) {
+        if (await dmAllowed(started.user.user_id, started.user.name)) await adminPanel.sendPanel(started.chat_id, started.user.user_id);
+        else await api.sendMessageToChat(started.chat_id, { text: DM_DENIED });
+      }
     } else if (update.update_type === "message_created") {
       await handleMessageCreated(update);
     } else if (update.update_type === "message_callback") {
