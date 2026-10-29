@@ -7,11 +7,12 @@ import { getChatOptions, getMaxPlayers, getPayment, hasOwnPayment, setChatOption
 /**
  * /оплата (только админ) — сумма с игрока и реквизиты этого чата для напоминаний об оплате:
  *   /оплата 350 Т-банк 89990000000 Екатерина
- * Хранится в базе, а не в репозитории (номер телефона). /оплата сброс — снова из .env.
+ * Хранится в базе, а не в репозитории (номер телефона). /оплата выкл / вкл — оплата в чате;
+ * /оплата сброс — сумма и реквизиты по умолчанию из .env.
  */
 export const PAYMENT_RE = /^\/(оплата|payment)(?:\s+([\s\S]+))?$/i;
 
-const HELP = "Формат: /оплата <сумма с игрока> <реквизиты>, например: /оплата 350 Т-банк 89990000000 Имя\n/оплата сброс — сумма и реквизиты из .env.";
+const HELP = "Формат: /оплата <сумма с игрока> <реквизиты>, например: /оплата 350 Т-банк 89990000000 Имя\n/оплата выкл / вкл — напоминания и блок оплаты в чате; /оплата сброс — сумма и реквизиты из .env.";
 
 /** Текст ответа админу. `groupChatId` — чат, чью оплату настраиваем (команда может прийти из лички). */
 export async function paymentCommand(groupChatId: number, userId: number, arg?: string): Promise<string> {
@@ -19,7 +20,18 @@ export async function paymentCommand(groupChatId: number, userId: number, arg?: 
   const text = arg?.trim();
   if (!text) {
     const p = getPayment(groupChatId);
+    if (!getChatOptions(groupChatId).payment) return `💰 Оплата в этом чате выключена.\n\n${HELP}`;
     return `Сейчас: ${p.amount} ₽ с игрока на ${p.details}${hasOwnPayment(groupChatId) ? "" : " (по умолчанию из .env)"}.\n\n${HELP}`;
+  }
+  if (/^(выкл|выключить|off)$/i.test(text)) {
+    setChatOptions(groupChatId, { payment: false });
+    return "💰 Оплата выключена: напоминаний и блока оплаты в составах нет. Включить: /оплата вкл";
+  }
+  if (/^(вкл|включить|on)$/i.test(text)) {
+    if (!hasOwnPayment(groupChatId) && !process.env.PAYMENT_DETAILS) return `Сначала задайте сумму и реквизиты.\n\n${HELP}`;
+    setChatOptions(groupChatId, { payment: true });
+    const p = getPayment(groupChatId);
+    return `💰 Оплата включена: ${p.amount} ₽ с игрока на ${p.details}.`;
   }
   if (/^(сброс|reset)$/i.test(text)) {
     setPayment(groupChatId, null);
@@ -31,6 +43,7 @@ export async function paymentCommand(groupChatId: number, userId: number, arg?: 
   const details = m[2].trim();
   if (details.length > 300) return "Слишком длинные реквизиты — не больше 300 символов.";
   setPayment(groupChatId, { amount: Number(m[1]), details });
+  setChatOptions(groupChatId, { payment: true });
   return `✅ Оплата этого чата: ${m[1]} ₽ с игрока на ${details}.`;
 }
 

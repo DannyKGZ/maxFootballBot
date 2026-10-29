@@ -4,6 +4,7 @@ import { fullName } from "./messageFormatter";
 import { GameSeason, SEASON_MONTHS, seasonLabel, seasonOf } from "./gameSeasons";
 import { assign, holderFromMember } from "./rolesLogic";
 import {
+  getChatOptions,
   RoleHolder,
   getMvpPeriod,
   getMvpRating,
@@ -48,10 +49,13 @@ async function crownLegendOfYear(chatId: number, gameYear: number, rating: Retur
   const table = year.slice(0, 5).map((e, i) => `${["🥇", "🥈", "🥉"][i] ?? `${i + 1}.`} ${e.name} — ${e.year}`);
   if (top.length > 1) {
     return [
-      `🏆 Итоги года ${gameYear}: ничья — по ${top[0].year} MVP у ${top.map((e) => e.name).join(", ")}. Легенду выбирает админ: /легенда`,
+      `🏆 Итоги года ${gameYear}: ничья — по ${top[0].year} MVP у ${top.map((e) => e.name).join(", ")}. ${getChatOptions(chatId).legend ? "Легенду выбирает админ: /легенда" : ""}`.trim(),
       "",
       ...table,
     ].join("\n");
+  }
+  if (!getChatOptions(chatId).legend) {
+    return [`🏆 Лучший игрок ${gameYear} года — ${top[0].name} (${top[0].year} MVP)!`, "", ...table].join("\n");
   }
   const holder = await holderFor(chatId, top[0].name);
   if (!holder) {

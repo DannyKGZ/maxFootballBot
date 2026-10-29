@@ -15,6 +15,7 @@ import { getSession, getVoteSession } from "./store";
 import { ButtonAction } from "./types";
 import * as voteLogic from "./voteLogic";
 import { getMvpRating } from "./settingsStore";
+import { settingsCommand } from "./chatSettings";
 
 /**
  * Панель администратора в личном чате с ботом. В групповом чате MAX
@@ -157,6 +158,9 @@ export async function handlePanelAction(
     case "adm_edit":
       await openEditor(dmChatId, group);
       return "Редактор списка ниже";
+
+    case "adm_settings":
+      return (await settingsCommand(group, dmChatId, userId)) || "Настройки ниже";
 
     case "adm_debtors":
       await sendDebtorsWithReceipts(group, dmChatId, userId);

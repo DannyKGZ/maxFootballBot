@@ -195,6 +195,8 @@ export type ButtonAction =
   | { a: "dm_rm_cancel"; u: number }
   | { a: "help" }
   | { a: "adm_debtors" } // «💰 Должники и чеки» в панели админа
+  | { a: "adm_settings" } // «⚙️ Настройки» в панели админа
+  | { a: "cfg"; k: string } // кнопка экрана настроек (chatSettings.ts)
   | { a: "adm_merge" } // подсказка по объединению имён в рейтинге MVP (панель админа) // инструкция — приходит нажавшему в личку
   | { a: "adm_vote" }
   | { a: "adm_finish" }

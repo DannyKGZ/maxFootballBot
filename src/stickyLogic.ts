@@ -1,3 +1,4 @@
+import { getChatOptions } from "./settingsStore";
 import { config, isManagedChat } from "./config";
 import { onChatMessageSent } from "./maxApi";
 import { repostDraftMessage } from "./draftLogic";
@@ -27,7 +28,7 @@ function stickyOf(chatId: number): { kind: "vote" | "draft"; messageId: string |
 
 /** В чате появилось новое сообщение (не наше «нижнее») — перепостим «нижнее» чуть позже. */
 export function noteChatActivity(chatId: number, messageId?: string): void {
-  if (config.stickyDelayMs <= 0 || !isManagedChat(chatId) || reposting.has(chatId)) return;
+  if (config.stickyDelayMs <= 0 || !isManagedChat(chatId) || reposting.has(chatId) || !getChatOptions(chatId).sticky) return;
   const sticky = stickyOf(chatId);
   if (!sticky || (messageId && messageId === sticky.messageId)) return;
   clearTimeout(timers.get(chatId));

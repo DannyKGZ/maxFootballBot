@@ -1,3 +1,4 @@
+import { getChatOptions } from "./settingsStore";
 import { NOT_ADMIN } from "./format";
 import * as api from "./maxApi";
 import { InlineKeyboardAttachment, KeyboardButton } from "./maxApi";
@@ -97,10 +98,7 @@ function render(s: FootballSession): { text: string; format?: "html"; attachment
       "⚽ Составы готовы!",
       "",
       ...teamLines(s, d).map(escapeHtml),
-      "",
-      paymentHeader(s.chatId, s.date),
-      paymentDetailsLine(s.chatId),
-      ...paymentPayerLines(s),
+      ...(getChatOptions(s.chatId).payment ? ["", paymentHeader(s.chatId, s.date), paymentDetailsLine(s.chatId), ...paymentPayerLines(s)] : []),
     ].join("\n"),
     format: "html",
     attachments: [],

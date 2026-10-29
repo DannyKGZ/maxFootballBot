@@ -10,7 +10,7 @@ import {
   voteCounts,
 } from "./messageFormatter";
 import { isChatAdmin } from "./sessionLogic";
-import { RoleHolder, addMvpWins, getMvpRating, getSeasonStart } from "./settingsStore";
+import { RoleHolder, addMvpWins, getChatOptions, getMvpRating, getSeasonStart } from "./settingsStore";
 import {
   deleteVoteSession,
   getArchivedSession,
@@ -74,8 +74,9 @@ export async function startVote(chatId: number, adminUserId: number): Promise<St
  * 21:30 при игре в 20:30) голосование открывается само — один раз на игру.
  */
 export async function autoStartVoteIfDue(session: FootballSession, now = Date.now()): Promise<boolean> {
-  if (config.voteAutoStartMinutes <= 0 || session.voteAutoStarted) return false;
-  const due = new Date(session.date).getTime() + config.voteAutoStartMinutes * 60_000;
+  const minutes = getChatOptions(session.chatId).voteAutoStart;
+  if (minutes <= 0 || session.voteAutoStarted) return false;
+  const due = new Date(session.date).getTime() + minutes * 60_000;
   if (now < due) return false;
   // Только в течение 6 часов после срока: по давно прошедшей игре (например, после
   // долгого простоя бота) голосование само не открываем — это сделает админ.
@@ -301,7 +302,7 @@ export async function finalizeVote(chatId: number, reason: boolean | "all_voted"
       : reason
         ? "\n\nЗакрыто по времени."
         : "";
-  const congrats = pickCongrats(chatId, getVoteWinners(vote).length);
+  const congrats = getChatOptions(chatId).mvpCongrats ? pickCongrats(chatId, getVoteWinners(vote).length) : [];
   const res = await api.sendMessageToChat(chatId, { text: buildMvpResultText(vote, congrats) + note });
 
   // Составы (дележка с упоминаниями и оплатой) тоже остаются.

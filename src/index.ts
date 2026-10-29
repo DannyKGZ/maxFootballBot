@@ -11,9 +11,11 @@ import { refreshVoteMessage } from "./voteLogic";
 import { loadSessionsFromDisk, flushSessionsToDiskSync } from "./store";
 import { deleteSubscription, getSubscriptions, registerWebhook, setBotCommands } from "./maxApi";
 import { USER_MENU_COMMANDS } from "./actions";
+import { initChatSettings } from "./settingsStore";
 
 async function main(): Promise<void> {
   loadSessionsFromDisk();
+  initChatSettings(config.chatIds); // настройки чатов в базе: прежние чаты — как были, новые — по умолчанию
 
   const app = createWebhookApp();
 

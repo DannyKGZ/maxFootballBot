@@ -65,30 +65,108 @@ export function setGameSlots(chatId: number, slots: GameSlot[] | null): void {
   else db().prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(`game_slots:${chatId}`, JSON.stringify(slots));
 }
 
-// ---- Настройки чата: манишки вкл/выкл, когда напоминать об оплате ----
+// ---- Настройки чата (⚙️ Настройки, /настройки) ----
 
+/**
+ * Всё, что у разных чатов может отличаться, хранится в базе у каждого чата.
+ * Значения из .env — только умолчания для новых чатов. Чаты, подключённые до
+ * появления настроек, получили их «как было» (initChatSettings) — у них ничего не поменялось.
+ */
 export interface ChatOptions {
-  maniska: boolean; // манишкаНосец и кнопка «Кто забрал манишки?»
+  legend: boolean; // 🏆 легенда: 1-й в каждой записи, легенда года по итогам MVP
+  maniska: boolean; // 👕 манишкаНосец и кнопка «Кто забрал манишки?»
+  payment: boolean; // 💰 оплата: напоминания и блок оплаты в составах
+  mvpCongrats: boolean; // 🎉 поздравление победителям MVP
+  sticky: boolean; // 📌 дележка и голосование держатся внизу чата, пока идут
+  reminderBefore: number; // ⏰ напоминание о составе за N ч до игры (0 — нет)
+  voteAutoStart: number; // 🗳 голосование MVP само через N мин после начала игры (0 — вручную)
+  voteAutoClose: number; // голосование закрывается само через N ч (0 — вручную)
   paymentBefore: number; // напоминания об оплате каждый час за N ч до игры (0 — нет)
   paymentAfter: number; // и N ч после игры
   // Проверка PDF-чеков об оплате (учёт оплаты, /должники): куда должны переводить.
   receipts?: { phone: string; recipient: string };
 }
 
-export function getChatOptions(chatId: number): ChatOptions {
-  const row = db().prepare("SELECT value FROM meta WHERE key = ?").get(`chat_opts:${chatId}`) as { value: string } | undefined;
-  const saved = row ? (JSON.parse(row.value) as Partial<ChatOptions>) : {};
-  return { maniska: true, paymentBefore: config.paymentHoursBefore, paymentAfter: config.paymentHoursAfter, ...saved };
+/** Умолчания для нового чата: особые функции (легенда, манишки) выключены, остальное — из .env. */
+function defaultOptions(): ChatOptions {
+  return {
+    legend: false,
+    maniska: false,
+    payment: Boolean(process.env.PAYMENT_DETAILS),
+    mvpCongrats: true,
+    sticky: true,
+    reminderBefore: config.reminderHoursBefore,
+    voteAutoStart: config.voteAutoStartMinutes,
+    voteAutoClose: config.voteAutoCloseHours,
+    paymentBefore: config.paymentHoursBefore,
+    paymentAfter: config.paymentHoursAfter,
+  };
 }
 
-export function setChatOptions(chatId: number, patch: Partial<ChatOptions> | null): void {
-  if (!patch) {
-    db().prepare("DELETE FROM meta WHERE key = ?").run(`chat_opts:${chatId}`);
-    return;
+const optsKey = (chatId: number) => `chat_opts:${chatId}`;
+
+function savedOptions(chatId: number): Partial<ChatOptions> | null {
+  const row = db().prepare("SELECT value FROM meta WHERE key = ?").get(optsKey(chatId)) as { value: string } | undefined;
+  return row ? (JSON.parse(row.value) as Partial<ChatOptions>) : null;
+}
+
+export function getChatOptions(chatId: number): ChatOptions {
+  const saved = savedOptions(chatId) ?? {};
+  const merged = { ...defaultOptions() } as unknown as Record<string, unknown>;
+  for (const [k, v] of Object.entries(saved)) if (v !== undefined && v !== null) merged[k] = v;
+  return merged as unknown as ChatOptions;
+}
+
+/** Меняет настройки чата; поле со значением undefined — снова умолчание. */
+export function setChatOptions(chatId: number, patch: Partial<ChatOptions>): void {
+  const merged: Record<string, unknown> = { ...(savedOptions(chatId) ?? {}) };
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === undefined) delete merged[k];
+    else merged[k] = v;
   }
-  const row = db().prepare("SELECT value FROM meta WHERE key = ?").get(`chat_opts:${chatId}`) as { value: string } | undefined;
-  const merged = { ...(row ? (JSON.parse(row.value) as Partial<ChatOptions>) : {}), ...patch };
-  db().prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(`chat_opts:${chatId}`, JSON.stringify(merged));
+  db().prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(optsKey(chatId), JSON.stringify(merged));
+}
+
+/** Были ли у чата записи, рейтинг или настройки — то есть подключён ли он раньше. */
+function chatHasHistory(chatId: number): boolean {
+  const d = db();
+  const tables = ["sessions", "archived_sessions", "votes", "mvp_players", "chat_schedule"];
+  if (tables.some((t) => d.prepare(`SELECT 1 FROM ${t} WHERE chat_id = ? LIMIT 1`).get(chatId))) return true;
+  return Boolean(d.prepare("SELECT 1 FROM meta WHERE key LIKE ? LIMIT 1").get(`%:${chatId}`));
+}
+
+/**
+ * Один раз на чат при запуске. Чат с историей (подключён до настроек) получает
+ * все настройки так, как они действовали: легенда и манишки включены, оплата,
+ * лимит и напоминания — из .env. Новый чат — умолчания (особые функции выключены).
+ */
+export function initChatSettings(chatIds: number[]): void {
+  for (const chatId of chatIds) {
+    const saved = savedOptions(chatId);
+    if (saved && "legend" in saved) continue; // уже настроен
+    if (!chatHasHistory(chatId)) {
+      setChatOptions(chatId, { legend: false, maniska: false });
+      console.log(`[settings] чат ${chatId}: новый — легенда и манишки выключены, остальное по умолчанию (⚙️ Настройки)`);
+      continue;
+    }
+    const d = defaultOptions();
+    setChatOptions(chatId, {
+      legend: true,
+      maniska: saved?.maniska ?? true,
+      payment: true,
+      mvpCongrats: true,
+      sticky: true,
+      reminderBefore: d.reminderBefore,
+      voteAutoStart: d.voteAutoStart,
+      voteAutoClose: d.voteAutoClose,
+      paymentBefore: saved?.paymentBefore ?? d.paymentBefore,
+      paymentAfter: saved?.paymentAfter ?? d.paymentAfter,
+    });
+    if (!hasOwnPayment(chatId)) setPayment(chatId, { amount: config.paymentAmount, details: config.paymentDetails });
+    if (!db().prepare("SELECT 1 FROM meta WHERE key = ?").get(`max_players:${chatId}`)) setMaxPlayers(chatId, config.maxPlayers);
+    if (!db().prepare("SELECT 1 FROM meta WHERE key = ?").get(`game_time:${chatId}`)) setGameTime(chatId, config.gameTime);
+    console.log(`[settings] чат ${chatId}: настройки сохранены в базе как были (оплата, лимит, напоминания, легенда, манишки)`);
+  }
 }
 
 // ---- Роли: легенда и манишкаНосец (/легенда, /манишкаНосец) ----
@@ -131,7 +209,7 @@ export function getRole(chatId: number, kind: RoleKind, now = Date.now()): RoleH
   const row = db().prepare("SELECT value FROM meta WHERE key = ?").get(`role_${kind}:${chatId}`) as { value: string } | undefined;
   if (!row) return null;
   const holder = JSON.parse(row.value) as RoleHolder;
-  if (kind === "legend" && now >= LEGEND_TERM_MS(holder.since)) return null;
+  if (kind === "legend" && (now >= LEGEND_TERM_MS(holder.since) || !getChatOptions(chatId).legend)) return null;
   if (kind === "maniska" && !getChatOptions(chatId).maniska) return null; // манишки в этом чате выключены
   return holder;
 }

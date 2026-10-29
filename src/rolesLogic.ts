@@ -138,6 +138,22 @@ export async function assign(chatId: number, kind: RoleKind, holder: RoleHolder 
   await applyRoleChange(chatId, kind, previous);
 }
 
+const OFF_TEXT: Record<RoleKind, string> = {
+  legend: "🏆 Легенда в этом чате выключена. Включить: /легенда вкл",
+  maniska: "👕 Манишки выключены. Включить: /манишкаНосец вкл",
+};
+
+/** Включить/выключить роль в чате (⚙️ Настройки, «/легенда выкл»). Выключили — пометка уходит из открытой записи. */
+export async function toggleRole(chatId: number, kind: RoleKind, on: boolean): Promise<string> {
+  const before = getRole(chatId, kind);
+  setChatOptions(chatId, { [kind]: on });
+  await applyRoleChange(chatId, kind, before);
+  if (kind === "legend") {
+    return on ? "🏆 Легенда включена." : "🏆 Легенда выключена: никто не записывается 1-м, легенду года не назначаем. Включить: /легенда вкл";
+  }
+  return on ? "👕 Манишки включены." : "👕 Манишки выключены: манишкаНосец не записывается, кнопки после игры нет. Включить: /манишкаНосец вкл";
+}
+
 /**
  * /легенда, /манишкаНосец (только админ). `groupChatId` — чат, чью роль меняем;
  * `replyChatId` — куда прислать выбор (сам чат или личка админа). Пусто — выбор уже отправлен.
@@ -152,16 +168,8 @@ export async function roleCommand(
   const userId = sender.user_id;
   if (!(await isChatAdmin(groupChatId, userId))) return NOT_ADMIN;
   const text = arg?.trim() ?? "";
-  if (kind === "maniska" && /^(выкл|выключить|off|вкл|включить|on)$/i.test(text)) {
-    const on = /^(вкл|включить|on)$/i.test(text);
-    const before = getRole(groupChatId, "maniska");
-    setChatOptions(groupChatId, { maniska: on });
-    await applyRoleChange(groupChatId, "maniska", before); // выключили — убрать манишкаНосца из открытой записи
-    return on
-      ? "👕 Манишки включены."
-      : "👕 Манишки выключены: манишкаНосец не записывается, кнопки после игры нет. Включить: /манишкаНосец вкл";
-  }
-  if (kind === "maniska" && !getChatOptions(groupChatId).maniska) return "👕 Манишки выключены. Включить: /манишкаНосец вкл";
+  if (/^(выкл|выключить|off|вкл|включить|on)$/i.test(text)) return toggleRole(groupChatId, kind, /^(вкл|включить|on)$/i.test(text));
+  if (!getChatOptions(groupChatId)[kind]) return OFF_TEXT[kind];
   if (/^(сброс|снять|reset)$/i.test(text)) {
     await assign(groupChatId, kind, null);
     return `${TITLE[kind]}: роль снята.`;

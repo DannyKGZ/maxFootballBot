@@ -8,6 +8,9 @@ module.exports = {
   env: { CHAT_IDS: "-1,-2", PAYMENT_HOURS_BEFORE: "3", PAYMENT_HOURS_AFTER: "2", TICK_INTERVAL_MS: "300" },
   async run(t) {
     const L = (chat) => t.lines(t.find(/^Футбол в/, chat)).join("|");
+    await t.say(1, "/оплата 350 Т-банк +7 (900) 111-22-33 Мария П."); // в новом чате оплата выключена, пока нет реквизитов
+    await t.say(1, "/оплата 350 Т-банк +7 (900) 111-22-33 Мария П.", { chat: -2 });
+    await t.say(1, "/манишкаНосец вкл", { chat: -2 });
     await t.say(1, "/старт", { chat: -2 });
     await t.say(2, "+", { chat: -2 });
     await t.say(3, "+", { chat: -2 });

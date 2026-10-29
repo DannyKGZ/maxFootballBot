@@ -2,7 +2,7 @@ import cron, { ScheduledTask } from "node-cron";
 import { config, isManagedChat } from "./config";
 import { closeSignupIfStarted, publishNewSession } from "./sessionLogic";
 import { runNotifications } from "./notifications";
-import { loadSchedule } from "./settingsStore";
+import { getChatOptions, loadSchedule } from "./settingsStore";
 import { slotCrons } from "./gameDays";
 import { rolloverIfDue } from "./seasonLogic";
 import { getAllSessions, getAllVoteSessions } from "./store";
@@ -75,15 +75,14 @@ async function tick(now = Date.now()): Promise<void> {
     }
   }
 
-  if (config.voteAutoCloseHours > 0) {
-    for (const vote of getAllVoteSessions()) {
-      if (now - vote.createdAt < config.voteAutoCloseHours * 3_600_000) continue;
-      try {
-        console.log(`[scheduler] автозакрытие голосования в чате ${vote.chatId}`);
-        await finalizeVote(vote.chatId, true);
-      } catch (err) {
-        console.error("[scheduler] ошибка автозакрытия голосования:", err);
-      }
+  for (const vote of getAllVoteSessions()) {
+    const hours = getChatOptions(vote.chatId).voteAutoClose;
+    if (hours <= 0 || now - vote.createdAt < hours * 3_600_000) continue;
+    try {
+      console.log(`[scheduler] автозакрытие голосования в чате ${vote.chatId}`);
+      await finalizeVote(vote.chatId, true);
+    } catch (err) {
+      console.error("[scheduler] ошибка автозакрытия голосования:", err);
     }
   }
 }

@@ -2,7 +2,7 @@ import { NOT_ADMIN } from "./format";
 import { config } from "./config";
 import { DEFAULT_ROSTER_TEMPLATE, gameTimeOf, renderRosterTemplate, rosterTitle } from "./messageFormatter";
 import { isChatAdmin, refreshRoster } from "./sessionLogic";
-import { getRosterTemplate, setGameTime, setRosterTemplate } from "./settingsStore";
+import { getChatOptions, getRosterTemplate, setGameTime, setRosterTemplate } from "./settingsStore";
 import { getSession } from "./store";
 
 /**
@@ -90,7 +90,7 @@ export async function handleDescription(groupChatId: number, userId: number, arg
       session.notified = []; // время сдвинулось — уведомления считаются заново
       session.reminderSent = false;
     }
-    lines.push(`Начало игры: ${startTime} — от него считаются напоминание (за ${config.reminderHoursBefore} ч), оплата и /статус.`);
+    lines.push(`Начало игры: ${startTime} — от него считаются напоминание (за ${getChatOptions(groupChatId).reminderBefore} ч), оплата и /статус.`);
   }
 
   if (session) {

@@ -6,6 +6,8 @@ module.exports = {
   name: "Легенда (1-й, на год) и манишкаНосец (2-й, кнопка после игры)",
   async run(t) {
     const L = (msg = t.roster()) => t.lines(msg).join("|");
+    await t.say(1, "/легенда вкл"); // в новом чате легенда и манишки выключены
+    await t.say(1, "/манишкаНосец вкл");
     await t.say(1, "/старт");
     for (const uid of [2, 3, 4, 5]) await t.say(uid, "+");
 

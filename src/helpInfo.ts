@@ -39,9 +39,9 @@ function personalStatus(groupChatId: number, userId: number): Block {
 function reminders(chatId: number): Block {
   const payment = getPayment(chatId);
   const out: string[] = [];
-  if (config.reminderHoursBefore > 0) out.push(`⏰ За ${config.reminderHoursBefore} ч до игры — напоминание о составе.`);
   const opts = getChatOptions(chatId);
-  if (opts.paymentBefore > 0 || opts.paymentAfter > 0) {
+  if (opts.reminderBefore > 0) out.push(`⏰ За ${opts.reminderBefore} ч до игры — напоминание о составе.`);
+  if (opts.payment && (opts.paymentBefore > 0 || opts.paymentAfter > 0)) {
     const when = [
       opts.paymentBefore > 0 ? `за ${opts.paymentBefore} ч до игры` : "",
       opts.paymentAfter > 0 ? `${opts.paymentAfter} ч после` : "",
@@ -50,6 +50,12 @@ function reminders(chatId: number): Block {
   }
   if (opts.receipts) out.push("📄 После оплаты пришлите PDF-чек в чат или боту в личку: сумма = сколько вы записали × цена. Фото — на ручную проверку.");
   return out;
+}
+
+function voteOpensLine(chatId: number): string {
+  const m = getChatOptions(chatId).voteAutoStart;
+  const when = m <= 0 ? "Голосование открывает админ после игры" : `Голосование открывается через ${m % 60 === 0 ? `${m / 60} ч` : `${m} мин`} после начала игры`;
+  return `• ${when}, закрывается, когда проголосуют все`;
 }
 
 /** Команды участника — одинаковы для всех. Три раздела: запись, голосование, другое. */
@@ -65,7 +71,7 @@ function userCommandBlocks(chatId: number): Block[] {
     ],
     [
       "MVP (после игры):",
-      "• Голосование открывается через час после начала игры, закрывается, когда проголосуют все",
+      voteOpensLine(chatId),
       "• Голосует основа: голосов столько, сколько ваших записей в основе; за себя нельзя",
       "• /голос — показать голосование внизу чата",
       ...(maniska ? ["• «👕 Я забрал манишки» — в следующей записи вы 2-й; ошиблись — нажмите ещё раз"] : []),
@@ -92,7 +98,8 @@ function adminHelpBlocks(groupChatId: number, userId: number): Block[] {
   const session = getSession(groupChatId);
   const vote = getVoteSession(groupChatId);
   const main = session ? Math.min(session.players.length, getMaxPlayers(groupChatId)) : 0;
-  const autoClose = config.voteAutoCloseHours > 0 ? ` Иначе закроется само через ${config.voteAutoCloseHours} ч.` : "";
+  const closeHours = getChatOptions(groupChatId).voteAutoClose;
+  const autoClose = closeHours > 0 ? ` Иначе закроется само через ${closeHours} ч.` : "";
 
   return [
     ["ℹ️ Инструкция администратора"],
@@ -102,6 +109,11 @@ function adminHelpBlocks(groupChatId: number, userId: number): Block[] {
       `• Голосование: ${vote ? `идёт, голосов ${vote.votes.length}` : "нет"}`,
       `• Публикация: ${currentScheduleText(groupChatId)}`,
       "Команды — в чат или боту в личку (из лички — на выбранный чат, «🔁 Чат»). В личке есть панель с кнопками.",
+    ],
+    [
+      "⚙️ Настройки чата:",
+      "• /настройки (в личке — кнопка «⚙️ Настройки») — включить/выключить легенду, манишки, оплату, поздравления MVP; напоминание о составе, автоголосование",
+      "• /чеки +7 (900) 111-22-33 Мария П. — проверять PDF-чеки (телефон и получатель); /чеки выкл",
     ],
     [
       "📋 Запись:",
@@ -117,13 +129,13 @@ function adminHelpBlocks(groupChatId: number, userId: number): Block[] {
     ],
     [
       "💰 Оплата:",
-      "• /оплата 350 Т-банк 89990000000 Имя — сумма и реквизиты; /оплата сброс",
+      "• /оплата 350 Т-банк 89990000000 Имя — сумма и реквизиты (оплата включится); /оплата выкл",
       "• /напоминания 0 2 — напоминать за 0 ч до игры и 2 ч после; /напоминания сброс",
       "• /должники — кто не оплатил (месяц: /должники 9, все: /должники все); в личке и кнопкой «💰 Должники и чеки» — с файлами чеков на проверке; /оплатил 5 — отметить по номеру",
     ],
     [
       "🏆 Роли:",
-      "• /легенда — 1-й в каждой записи, на год (выбор из участников чата); /легенда Имя; /легенда сброс",
+      "• /легенда — 1-й в каждой записи, на год (выбор из участников чата); /легенда Имя; /легенда сброс; выкл / вкл — легенда в чате",
       "• /манишкаНосец — 2-й в записи (выбор из записавшихся); /манишкаНосец сброс; выкл / вкл — манишки в чате",
       "• 1 декабря лучший по MVP за год становится легендой года",
     ],

@@ -16,6 +16,7 @@ module.exports = {
     t.ok(seasonLabel(s(2026, 12, 5)) === "Зима 2026/27" && seasonLabel(s(2026, 10, 1)) === "Осень 2026" && s(2026, 12, 5).start.getMonth() === 11, "названия сезонов");
 
     // MVP: Ruslan (2 голоса).
+    await t.say(1, "/легенда вкл"); // в новом чате легенда выключена
     await t.say(1, "/старт");
     for (const uid of [2, 3, 4]) await t.say(uid, "+");
     await t.say(1, "/голосование");

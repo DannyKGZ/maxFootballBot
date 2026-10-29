@@ -30,10 +30,11 @@ interface Slot {
 function slotsFor(session: FootballSession): Slot[] {
   const game = new Date(session.date).getTime();
   const slots: Slot[] = [];
-  if (config.reminderHoursBefore > 0) {
-    slots.push({ key: "reminder", at: game - config.reminderHoursBefore * HOUR, kind: "reminder", hours: config.reminderHoursBefore });
+  const opts = getChatOptions(session.chatId); // у каждого чата своё (⚙️ Настройки, /напоминания)
+  if (opts.reminderBefore > 0) {
+    slots.push({ key: "reminder", at: game - opts.reminderBefore * HOUR, kind: "reminder", hours: opts.reminderBefore });
   }
-  const opts = getChatOptions(session.chatId); // у каждого чата своё: /напоминания
+  if (!opts.payment) return slots;
   for (let h = opts.paymentBefore; h >= 1; h--) {
     slots.push({ key: `pay-${h}`, at: game - h * HOUR, kind: "payment", phase: "before", hours: h });
   }

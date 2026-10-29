@@ -9,6 +9,7 @@ import { buildStatusText } from "./statusInfo";
 import { NICK_RE, handleAwaitedNick, handleDmUserAction, isDmUserAction, nickCommand } from "./dmMenu";
 import * as rosterEdit from "./rosterEdit";
 import { DM_DENIED, dmAllowed, dmTarget } from "./dmTarget";
+import { RECEIPTS_RE, SETTINGS_RE, handleSettingsAction, isSettingsAction, receiptsCommand, settingsCommand } from "./chatSettings";
 import * as draft from "./draftLogic";
 import { DESCRIPTION_RE, handleDescription } from "./descriptionLogic";
 import { GAMES_RE, gamesCommand } from "./gameSlotsLogic";
@@ -87,6 +88,8 @@ const TEXT_COMMANDS: TextCommand[] = [
   { re: REMINDERS_RE, run: (c, m) => remindersCommand(c.group, c.userId, m[2]) },
   { re: LIMIT_RE, run: (c, m) => limitCommand(c.group, c.userId, m[2]) },
   { re: PAYMENT_RE, run: (c, m) => paymentCommand(c.group, c.userId, m[2]) },
+  { re: SETTINGS_RE, run: (c) => settingsCommand(c.group, c.reply, c.userId) },
+  { re: RECEIPTS_RE, run: (c, m) => receiptsCommand(c.group, c.userId, m[2]) },
   { re: actions.MERGE_RE, run: async (c, m) => chatOf(await actions.mergeMvp(c.group, c.userId, m[2], m[3])) },
   ...actions.MVP_RESET_RE.map(({ re, scope }): TextCommand => ({
     re,
@@ -253,6 +256,14 @@ async function handleMessageCallback(update: MaxUpdate): Promise<void> {
 
   if (!action) {
     await api.answerCallback(chatId, callback.callback_id, { notification: "Готово" });
+    return;
+  }
+
+  // ⚙️ Настройки: в личке — выбранного чата, в чате — этого чата.
+  if (isSettingsAction(action)) {
+    const group = message?.recipient?.chat_type === "dialog" ? await dmTarget(pressedByUserId) : chatId;
+    const notification = await handleSettingsAction(group, chatId, pressedByUserId, action, message?.body?.mid);
+    await api.answerCallback(chatId, callback.callback_id, { notification });
     return;
   }
 
