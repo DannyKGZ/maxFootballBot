@@ -6,6 +6,7 @@ import { ensurePlayerIds, isChatAdmin, playerKey } from "./sessionLogic";
 import { getSession, setSession } from "./store";
 import { ButtonAction, Draft, FootballSession, Player } from "./types";
 import { escapeHtml, paymentDetailsLine, paymentHeader, paymentPayerLines } from "./messageFormatter";
+import { ensureLedger, receiptsEnabled } from "./paymentLedger";
 
 /**
  * Дележка на команды:
@@ -217,8 +218,21 @@ export async function handleDraftAction(chatId: number, userId: number, action: 
     if (!remaining(s, d).some((p) => playerKey(p) === action.k)) return "Этот игрок уже выбран";
     d.picks.push({ k: action.k, team: d.turn });
     d.turn = turnForPick(d.picks.length);
-    if (remaining(s, d).length === 0) d.stage = "done";
+    if (remaining(s, d).length === 0) {
+      d.stage = "done";
+      // Инициализируем payment ledger сразу при завершении дележки
+      if (receiptsEnabled(chatId)) {
+        ensureLedger(s);
+      }
+    }
     await show(s);
+    // Отправляем подсказку о возможности загрузки чеков
+    if (d.stage === "done" && receiptsEnabled(chatId)) {
+      await api.sendMessageToChat(chatId, {
+        text: "💡 Можете сразу загружать чеки об оплате! Используйте /оплата_список для просмотра должников.",
+        notify: false
+      }).catch(() => undefined);
+    }
     return d.stage === "done" ? "Составы готовы!" : `${nameOf(s, action.k)} — в команде`;
   }
   return "Готово";

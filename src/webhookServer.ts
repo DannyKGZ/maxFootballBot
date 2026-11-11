@@ -18,11 +18,13 @@ import {
   LIMIT_RE,
   PAID_RE,
   PAYMENT_RE,
+  PAYMENT_LIST_RE,
   REMINDERS_RE,
   debtorsCommand,
   sendDebtorsWithReceipts,
   limitCommand,
   paidCommand,
+  paymentListCommand,
   paymentCommand,
   remindersCommand,
 } from "./paymentLogic";
@@ -32,6 +34,7 @@ import * as scheduleLogic from "./scheduleLogic";
 import * as voteLogic from "./voteLogic";
 import { MaxUpdate, MaxUser } from "./types";
 import { noteChatActivity } from "./stickyLogic";
+import * as banCommands from "./banCommands";
 import * as roles from "./rolesLogic";
 import { fullName } from "./messageFormatter";
 
@@ -88,6 +91,7 @@ const TEXT_COMMANDS: TextCommand[] = [
   { re: REMINDERS_RE, run: (c, m) => remindersCommand(c.group, c.userId, m[2]) },
   { re: LIMIT_RE, run: (c, m) => limitCommand(c.group, c.userId, m[2]) },
   { re: PAYMENT_RE, run: (c, m) => paymentCommand(c.group, c.userId, m[2]) },
+  { re: PAYMENT_LIST_RE, where: "group", run: (c) => paymentListCommand(c.group, c.userId) },
   { re: SETTINGS_RE, run: (c) => settingsCommand(c.group, c.reply, c.userId) },
   { re: RECEIPTS_RE, run: (c, m) => receiptsCommand(c.group, c.userId, m[2]) },
   { re: actions.MERGE_RE, run: async (c, m) => chatOf(await actions.mergeMvp(c.group, c.userId, m[2], m[3])) },
@@ -113,6 +117,10 @@ const TEXT_COMMANDS: TextCommand[] = [
   { re: /^\/(close_signup|закрыть)$/i, where: "group", run: async (c) => chatOf(await actions.close(c.group, c.userId)) },
   { re: /^\/(vote_mvp|голосование)$/i, where: "group", run: async (c) => chatOf(await actions.voteStart(c.group, c.userId)) },
   { re: /^\/(finish_vote|итоги)$/i, where: "group", run: async (c) => chatOf(await actions.voteFinish(c.group, c.userId)) },
+  { re: banCommands.BAN_VARTAN_RE, where: "group", run: (c) => banCommands.banVartanCommand(c.userId) },
+  { re: banCommands.BAN_ILYAN_RE, where: "group", run: (c) => banCommands.banIlyanCommand(c.userId) },
+  { re: banCommands.BAN_ALEKSANDR_RE, where: "group", run: (c) => banCommands.banAleksandrCommand(c.userId) },
+  { re: banCommands.BAN_OLEG_RE, where: "group", run: (c) => banCommands.banOlegCommand(c.userId) },
 ];
 
 /** Найти и выполнить текстовую команду; true — команда нашлась. */

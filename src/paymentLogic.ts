@@ -1,8 +1,9 @@
 import * as api from "./maxApi";
 import { NOT_ADMIN } from "./format";
-import { debtorLine, debtors, getRow, parseMonth, receiptsEnabled, refreshLedgerMessage, shortDate, updateRow } from "./paymentLedger";
+import { debtorLine, debtors, getRow, parseMonth, receiptsEnabled, ensureLedger, buildLedgerText, refreshLedgerMessage, shortDate, updateRow } from "./paymentLedger";
 import { applyMaxPlayers, isChatAdmin } from "./sessionLogic";
 import { getChatOptions, getMaxPlayers, getPayment, hasOwnPayment, setChatOptions, setMaxPlayers, setPayment } from "./settingsStore";
+import { getSession } from "./store";
 
 /**
  * /оплата (только админ) — сумма с игрока и реквизиты этого чата для напоминаний об оплате:
@@ -165,6 +166,37 @@ export async function sendDebtorsWithReceipts(groupChatId: number, dmChatId: num
     await api.sendMessageToChat(dmChatId, { text: `🧾 ${i + 1}. ${row.payer_name} — чек (${row.note ?? "на проверке"}):` });
     await api
       .sendMessageToChat(dmChatId, { attachments: [{ type: row.file_type ?? "file", payload: { token: row.file_token } } as never] })
-      .catch((err) => console.warn("[payments] не удалось переслать чек:", err instanceof Error ? err.message : err));
   }
+}
+
+// Команда /оплата_список - ручной вызов списка должников
+export const PAYMENT_LIST_RE = /^\/(оплата_список|payment_list)$/i;
+
+export async function paymentListCommand(groupChatId: number, userId: number): Promise<void> {
+  const s = getSession(groupChatId);
+  if (!s) {
+    await api.sendMessageToChat(groupChatId, { text: "Сейчас записи нет — никого нет в списке." });
+    return;
+  }
+  
+  if (!receiptsEnabled(groupChatId)) {
+    await api.sendMessageToChat(groupChatId, { text: "В этом чате учёт оплаты (проверка чеков) не включён." });
+    return;
+  }
+  
+  if (!s.draft || s.draft.stage !== "done") {
+    await api.sendMessageToChat(groupChatId, { text: "Дележка ещё не завершена — список будет после /teams." });
+    return;
+  }
+  
+  // Инициализируем ledger если ещё не инициализирован
+  ensureLedger(s);
+  
+  // Отправляем сообщение со списком должников
+  const text = buildLedgerText(groupChatId, s.date);
+  await api.sendMessageToChat(groupChatId, { 
+    text, 
+    format: "html",
+    notify: false 
+  });
 }
