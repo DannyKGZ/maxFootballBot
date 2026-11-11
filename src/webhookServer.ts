@@ -118,8 +118,8 @@ const TEXT_COMMANDS: TextCommand[] = [
   { re: /^\/(vote_mvp|голосование)$/i, where: "group", run: async (c) => chatOf(await actions.voteStart(c.group, c.userId)) },
   { re: /^\/(finish_vote|итоги)$/i, where: "group", run: async (c) => chatOf(await actions.voteFinish(c.group, c.userId)) },
   { re: banCommands.BAN_VARTAN_RE, where: "group", run: (c) => banCommands.banVartanCommand(c.userId) },
-  { re: banCommands.BAN_ILYAN_RE, where: "group", run: (c) => banCommands.banIlyanCommand(c.userId) },
   { re: banCommands.BAN_ALEKSANDR_RE, where: "group", run: (c) => banCommands.banAleksandrCommand(c.userId) },
+  { re: banCommands.BAN_ILYAN_RE, where: "group", run: (c) => banCommands.banIlyanCommand(c.userId) },
   { re: banCommands.BAN_OLEG_RE, where: "group", run: (c) => banCommands.banOlegCommand(c.userId) },
 ];
 
