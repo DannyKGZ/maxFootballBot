@@ -1,12 +1,12 @@
-// Команды бана — только текстовые сообщения для Владимира Тюева
-// Без упоминания владельца, без реального бана
+// Команды — только текстовые сообщения, без реального бана.
 
 const OWNER_ID = 114829841;
+const command = (name: string) => new RegExp(`^\\/?${name}(?:@[A-Za-z0-9_]+)?$`, "i");
 
-export const BAN_VARTAN_RE = /^\/БанВартан$/i;
-export const BAN_ILYAN_RE = /^\/БанИльян$/i;
-export const BAN_ALEKSANDR_RE = /^\/БанАлексан$/i;
-export const BAN_OLEG_RE = /^\/БанОлег$/i;
+export const BAN_VARTAN_RE = command("БанВартан");
+export const BAN_ILYAN_RE = command("БанИльян");
+export const BAN_ALEKSANDR_RE = command("БанАлексан");
+export const BAN_OLEG_RE = command("БанОлег");
 
 export async function banVartanCommand(userId: number): Promise<string | null> {
   if (userId !== OWNER_ID) return null;
