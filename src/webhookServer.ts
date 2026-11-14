@@ -117,10 +117,10 @@ const TEXT_COMMANDS: TextCommand[] = [
   { re: /^\/(close_signup|закрыть)$/i, where: "group", run: async (c) => chatOf(await actions.close(c.group, c.userId)) },
   { re: /^\/(vote_mvp|голосование)$/i, where: "group", run: async (c) => chatOf(await actions.voteStart(c.group, c.userId)) },
   { re: /^\/(finish_vote|итоги)$/i, where: "group", run: async (c) => chatOf(await actions.voteFinish(c.group, c.userId)) },
-  { re: banCommands.BAN_VARTAN_RE, where: "group", run: (c) => banCommands.banVartanCommand(c.userId) },
-  { re: banCommands.BAN_ALEKSANDR_RE, where: "group", run: (c) => banCommands.banAleksandrCommand(c.userId) },
-  { re: banCommands.BAN_ILYAN_RE, where: "group", run: (c) => banCommands.banIlyanCommand(c.userId) },
-  { re: banCommands.BAN_OLEG_RE, where: "group", run: (c) => banCommands.banOlegCommand(c.userId) },
+  { re: banCommands.BAN_VARTAN_RE, where: "group", run: (c) => banCommands.banVartanCommand(c.userId, c.group) },
+  { re: banCommands.BAN_ALEKSANDR_RE, where: "group", run: (c) => banCommands.banAleksandrCommand(c.userId, c.group) },
+  { re: banCommands.BAN_ILYAN_RE, where: "group", run: (c) => banCommands.banIlyanCommand(c.userId, c.group) },
+  { re: banCommands.BAN_OLEG_RE, where: "group", run: (c) => banCommands.banOlegCommand(c.userId, c.group) },
 ];
 
 /** Найти и выполнить текстовую команду; true — команда нашлась. */
