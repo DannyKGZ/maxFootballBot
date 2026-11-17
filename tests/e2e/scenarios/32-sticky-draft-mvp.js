@@ -1,7 +1,7 @@
 const { sleep } = require("../harness");
 
 module.exports = {
-  name: "Идущие дележка и голосование держатся внизу (без уведомлений); оплата в составах; до 3 MVP",
+  name: "Дележка и голосование держатся внизу; оплата в составах; при ничьей у троих MVP не выдаётся",
   env: { MAX_PLAYERS: "6", STICKY_DELAY_MS: "300", PAYMENT_AMOUNT: "350", PAYMENT_DETAILS: "Т-банк 0000" },
   async run(t) {
     const settle = async () => {
@@ -45,7 +45,7 @@ module.exports = {
     await settle();
     t.ok(/^🏆 Голосование/.test(last().text) && t.count(/^⚽ Составы готовы/) === 1, "во время голосования внизу — голосование");
 
-    // У всех по одному голосу → ничья у шестерых, MVP — первые трое, кто набрал голос.
+    // У всех по одному голосу → ничья у шестерых, MVP не получает никто.
     const vote = async (uid, name) => t.click(uid, t.find(/^🏆 Голосование/), name);
     await vote(2, "Рома");
     await vote(2, "Влад");
@@ -55,10 +55,10 @@ module.exports = {
     await vote(6, "Ruslan");
     await settle();
     const res = t.find(/^🏆 MVP матча/);
-    t.ok(res && res.text.includes("— Рома, Влад, Пятый (по 1 голос)"), "до 3 MVP: при ничьей — первые трое", res && res.text);
+    t.ok(res && res.text.includes("Сегодня все молодцы, но лучших сегодня нет!"), "при ничьей у трёх и более игроков MVP не назначается", res && res.text);
     const cg = res ? res.text.split("\n").filter((l) => l.startsWith("🎉 ")) : [];
-    t.ok(cg.length === 3 && cg[0].startsWith("🎉 Рома! ") && cg[1].startsWith("🎉 Влад! ") && new Set(cg.map((l) => l.replace(/^🎉 \S+! /, ""))).size === 3, "каждому MVP — своё случайное поздравление", cg);
-    t.ok(t.mvpCount("Рома") === 1 && t.mvpCount("Пятый") === 1 && t.mvpCount("Шестой") === 0, "в рейтинг засчитано троим");
+    t.ok(cg.length === 0, "при отсутствии MVP поздравления не публикуются", cg);
+    t.ok(t.mvpCount("Рома") === 0 && t.mvpCount("Влад") === 0 && t.mvpCount("Пятый") === 0, "при ничьей рейтинг не увеличивается");
     t.ok(t.count(/^⚽ Составы готовы/) === 1, "после итогов составы не удалены");
 
     const before = t.all().length;

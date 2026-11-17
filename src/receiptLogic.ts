@@ -141,7 +141,7 @@ export async function handleReceipt(chatId: number, user: MaxUser, attachments: 
     const file = pdf ?? files[0];
     updateRow(row.id, { status: "review", note: reason, file_type: file?.type ?? null, file_token: file?.payload?.token ?? null });
     await refreshLedgerMessage(row.chat_id, row.game_date);
-    await reply(`🧾 ${who}чек на ручной проверке (${reason}). Напоминаний больше не будет.`);
+    await reply(`🧾 ${who}чек на ручной проверке (${reason}).`);
     console.log(`[receipts] ${user.user_id}: на проверку — ${reason}`);
     return true;
   }

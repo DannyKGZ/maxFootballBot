@@ -218,7 +218,12 @@ export async function handleDraftAction(chatId: number, userId: number, action: 
     if (!remaining(s, d).some((p) => playerKey(p) === action.k)) return "Этот игрок уже выбран";
     d.picks.push({ k: action.k, team: d.turn });
     d.turn = turnForPick(d.picks.length);
-    if (remaining(s, d).length === 0) {
+    const left = remaining(s, d);
+    if (left.length === 1) {
+      d.picks.push({ k: playerKey(left[0]), team: d.turn });
+      d.turn = turnForPick(d.picks.length);
+    }
+    if (left.length <= 1) {
       d.stage = "done";
       // Инициализируем payment ledger сразу при завершении дележки
       if (receiptsEnabled(chatId)) {

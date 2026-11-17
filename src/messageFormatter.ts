@@ -147,21 +147,15 @@ export function rankCandidates(vote: VoteSession): Array<VoteCandidate & { count
 }
 
 /** Больше скольких MVP в одном матче не бывает (ничья на первом месте). */
-export const MAX_MVP_WINNERS = 3;
+export const MAX_MVP_WINNERS = 2;
 
-/**
- * Победители голосования: все, у кого больше всех голосов (ничья), но не больше
- * MAX_MVP_WINNERS — при ничьей у большего числа игроков MVP получают те, кто
- * набрал это число голосов раньше. Пусто, если голосов не было.
- */
+/** MVP получают лидеры, если их не больше двух; при трёх и более звание не получает никто. */
 export function getVoteWinners(vote: VoteSession): string[] {
   if (vote.votes.length === 0) return [];
   const ranked = rankCandidates(vote);
   const top = ranked.filter((c) => c.count === ranked[0].count);
-  // Когда кандидат набрал свой итоговый счёт — по времени последнего голоса за него.
-  const reachedAt = (index: number) => Math.max(...vote.votes.filter((v) => v.candidateIndex === index).map((v) => v.createdAt));
-  const order = top.length > MAX_MVP_WINNERS ? [...top].sort((a, b) => reachedAt(a.index) - reachedAt(b.index)) : top;
-  return order.slice(0, MAX_MVP_WINNERS).map((c) => c.displayName);
+  if (top.length > MAX_MVP_WINNERS) return [];
+  return top.map((c) => c.displayName);
 }
 
 /** Итоговое сообщение после завершения голосования — остаётся в чате при очистке. */
@@ -174,12 +168,14 @@ export function buildMvpResultText(vote: VoteSession, congrats: string[] = []): 
   const topCount = ranked[0].count;
   const winners = getVoteWinners(vote);
   const winnerLine =
-    winners.length === 1
-      ? `${header} — ${winners[0]} (${topCount} ${votesWord(topCount)})`
-      : `${header} — ${winners.join(", ")} (по ${topCount} ${votesWord(topCount)})`;
+    winners.length === 0
+      ? header + ": Сегодня все молодцы, но лучших сегодня нет!"
+      : winners.length === 1
+        ? header + " — " + winners[0] + " (" + topCount + " " + votesWord(topCount) + ")"
+        : header + " — " + winners.join(", ") + " (по " + topCount + " " + votesWord(topCount) + ")";
 
   // В итогах — только те, за кого голосовали.
-  // Победители — первыми (при ничьей больше чем на троих не все из лидеров — MVP).
+  // Победители — первыми, если ничью разделили не более двух игроков.
   const isWinner = (c: VoteCandidate) => winners.includes(c.displayName);
   const resultLines = ranked
     .filter((c) => c.count > 0)
