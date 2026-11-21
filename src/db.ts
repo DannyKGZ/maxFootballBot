@@ -61,6 +61,23 @@ CREATE TABLE IF NOT EXISTS payments (
   UNIQUE (chat_id, game_date, payer_id)
 );
 CREATE TABLE IF NOT EXISTS receipts (hash TEXT PRIMARY KEY, chat_id INTEGER NOT NULL, payer_id INTEGER NOT NULL, at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS match_history (
+  chat_id INTEGER NOT NULL, game_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
+  roster TEXT NOT NULL, mvp TEXT,
+  PRIMARY KEY (chat_id, game_at)
+);
+CREATE INDEX IF NOT EXISTS match_history_expiry ON match_history (expires_at);
+CREATE TABLE IF NOT EXISTS mvp_announcements (
+  id INTEGER PRIMARY KEY, chat_id INTEGER NOT NULL, expires_at INTEGER NOT NULL,
+  text TEXT NOT NULL, vote_mid TEXT, roster_mid TEXT, result_mid TEXT
+);
+CREATE TABLE IF NOT EXISTS incoming_updates (
+  id INTEGER PRIMARY KEY, event_key TEXT NOT NULL UNIQUE, scope TEXT NOT NULL, payload TEXT,
+  received_at INTEGER NOT NULL, retry_at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
+  completed_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS incoming_updates_pending ON incoming_updates (retry_at, id) WHERE completed_at IS NULL;
+CREATE INDEX IF NOT EXISTS incoming_updates_scope ON incoming_updates (scope, id) WHERE completed_at IS NULL;
 `;
 
 let instance: Database.Database | null = null;
@@ -71,6 +88,7 @@ export function db(): Database.Database {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   instance = new Database(file);
   instance.pragma("journal_mode = WAL"); // устойчиво к сбоям, чтение не блокирует запись
+  instance.pragma("synchronous = FULL"); // подтверждаем события MAX только после записи в WAL
   instance.pragma("busy_timeout = 5000");
   instance.exec(SCHEMA);
   migrateFromJson(instance);

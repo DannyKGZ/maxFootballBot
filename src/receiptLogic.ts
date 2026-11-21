@@ -3,6 +3,8 @@ import { config } from "./config";
 import { db } from "./db";
 import * as api from "./maxApi";
 import {
+  getRow,
+  isSettled,
   PaymentRow,
   receiptsEnabled,
   refreshLedgerMessage,
@@ -15,8 +17,7 @@ import { MaxUser } from "./types";
 /**
  * Чек об оплате — в чат (с проверкой чеков) или боту в личку:
  *  - PDF: бот читает текст, проверяет получателя (телефон или имя из настроек
- *    чата) и сумму: она должна быть равна «сколько человек записал в основу × цена»
- *    (1 — 350 ₽, 2 — 700 ₽ …). Сошлось — оплачено (✅), иначе — ручная проверка;
+ *    чата) и сумму. При совпадении отмечает оплату, остальные чеки идут на проверку;
  *  - фото (или другой файл) — сразу ручная проверка;
  * ручная проверка: в списке «⏳ на проверке», человека больше не упоминают;
  * админ смотрит чеки кнопкой «💰 Должники и чеки» в личке и отмечает /оплатил N.
@@ -47,11 +48,11 @@ async function pdfText(bytes: Uint8Array): Promise<string> {
   return text;
 }
 
-const num = (s: string) => Number(s.replace(/[\s  ]/g, ""));
+const num = (s: string) => Number(s.replace(/[\s  ]/g, "").replace(",", "."));
 
 /** Сумма перевода из текста чека: «Сумма 1 050 ₽», иначе «Итого …», иначе первая сумма с ₽. */
 export function findAmount(text: string): number | null {
-  const money = String.raw`(\d{1,3}(?:[\s  ]?\d{3})*|\d+)(?:[.,]\d{1,2})?\s*(?:₽|руб|RUB|р\.)`;
+  const money = String.raw`((?:\d{1,3}(?:[\s  ]\d{3})+|\d+)(?:[.,]\d{1,2})?)\s*(?:₽|руб|RUB|р\.)`;
   for (const label of ["Сумма перевода", "Сумма", "Итого"]) {
     const m = text.match(new RegExp(`${label}[^\\d\\n]{0,20}${money}`, "i")) ?? text.match(new RegExp(`${label}\\s*\\n\\s*${money}`, "i"));
     if (m) return num(m[1]);
@@ -76,41 +77,76 @@ function openRowIn(chatId: number, userId: number): PaymentRow | undefined {
     .get(chatId, userId) as PaymentRow | undefined;
 }
 
-async function downloadPdf(url: string): Promise<Uint8Array> {
-  let res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
-  // Если ссылка MAX требует авторизации — повторяем с токеном бота.
-  if (res.status === 401 || res.status === 403) res = await fetch(url, { headers: { Authorization: config.botToken }, signal: AbortSignal.timeout(30_000) });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const bytes = new Uint8Array(await res.arrayBuffer());
-  if (bytes.length > MAX_PDF_BYTES) throw new Error("файл больше 10 МБ");
-  return bytes;
+async function downloadPdf(rawUrl: string): Promise<Uint8Array> {
+  const url = new URL(rawUrl);
+  const apiOrigin = new URL(config.apiBaseUrl).origin;
+  const isApi = url.origin === apiOrigin;
+  const mockApi = isApi && url.protocol === "http:" && url.hostname === "127.0.0.1";
+  const trusted = isApi || config.receiptDownloadOrigins.includes(url.origin);
+  if ((url.protocol !== "https:" && !mockApi) || !trusted || url.username || url.password) {
+    throw new Error("источник файла не входит в список доверенных");
+  }
+
+  const options = { signal: AbortSignal.timeout(30_000), redirect: "error" } as const;
+  let response = await fetch(url, options);
+  if (isApi && url.protocol === "https:" && (response.status === 401 || response.status === 403)) {
+    await response.body?.cancel();
+    response = await fetch(url, { ...options, headers: { Authorization: config.botToken } });
+  }
+  if (!response.ok || !response.body) {
+    await response.body?.cancel();
+    throw new Error(`скачивание не удалось (HTTP ${response.status})`);
+  }
+  if (Number(response.headers.get("content-length")) > MAX_PDF_BYTES) {
+    await response.body.cancel();
+    throw new Error("файл больше 10 МБ");
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      length += value.byteLength;
+      if (length > MAX_PDF_BYTES) {
+        await reader.cancel();
+        throw new Error("файл больше 10 МБ");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Uint8Array.from(Buffer.concat(chunks, length));
 }
 
-/** Проверка PDF → null (оплачено) или причина для ручной проверки. */
-async function checkPdf(row: PaymentRow, pdf: Attachment, userId: number): Promise<string | null | "download_failed"> {
+type ReceiptCheck = { reason: string | null; hash?: string };
+
+async function checkPdf(row: PaymentRow, pdf: Attachment): Promise<ReceiptCheck | undefined> {
   let bytes: Uint8Array;
   try {
     bytes = await downloadPdf(pdf.payload?.url ?? "");
   } catch (err) {
     console.warn("[receipts] не удалось скачать PDF:", err instanceof Error ? err.message : err);
-    return "download_failed";
+    return undefined;
   }
   const hash = createHash("sha256").update(bytes).digest("hex");
-  if (db().prepare("SELECT 1 FROM receipts WHERE hash = ?").get(hash)) return "этот чек уже присылали";
   let text = "";
   try {
     text = await pdfText(bytes);
   } catch (err) {
     console.warn("[receipts] не удалось прочитать PDF:", err instanceof Error ? err.message : err);
   }
-  if (!text.trim()) return "в PDF нет текста (скан?)";
-  db().prepare("INSERT OR IGNORE INTO receipts (hash, chat_id, payer_id, at) VALUES (?, ?, ?, ?)").run(hash, row.chat_id, userId, Date.now());
-  if (!recipientMatches(text, getChatOptions(row.chat_id).receipts!)) return "получатель не совпадает";
+  if (!text.trim()) return { reason: "в PDF нет текста (скан?)" };
+  const expected = getChatOptions(row.chat_id).receipts;
+  if (!expected || !recipientMatches(text, expected)) return { hash, reason: "получатель не совпадает" };
   const amount = findAmount(text);
-  if (amount === null) return "не нашёл сумму";
+  if (amount === null) return { hash, reason: "не нашёл сумму" };
   const players = (JSON.parse(row.players) as string[]).length;
-  if (amount !== row.due) return `сумма ${amount} ₽, нужно ${row.due} ₽ (${players} × ${getPayment(row.chat_id).amount} ₽)`;
-  return null;
+  if (amount !== row.due) return { hash, reason: `сумма ${amount} ₽, нужно ${row.due} ₽ (${players} × ${getPayment(row.chat_id).amount} ₽)` };
+  return { hash, reason: null };
 }
 
 /**
@@ -130,24 +166,31 @@ export async function handleReceipt(chatId: number, user: MaxUser, attachments: 
     await reply("Неоплаченных игр нет 👍");
     return true;
   }
-  console.log(`[receipts] ${user.user_id}: вложения ${JSON.stringify(files.map((f) => ({ type: f.type, filename: f.filename })))}`);
-
-  const reason = pdf ? await checkPdf(row, pdf, user.user_id) : "фото/файл вместо PDF — проверьте вручную";
-  if (reason === "download_failed") {
+  const check = pdf ? await checkPdf(row, pdf) : { reason: "фото/файл вместо PDF — проверьте вручную" };
+  if (!check) {
     await reply(`${who}не удалось скачать файл — пришлите PDF ещё раз.`);
     return true;
   }
-  if (reason) {
-    const file = pdf ?? files[0];
-    updateRow(row.id, { status: "review", note: reason, file_type: file?.type ?? null, file_token: file?.payload?.token ?? null });
-    await refreshLedgerMessage(row.chat_id, row.game_date);
-    await reply(`🧾 ${who}чек на ручной проверке (${reason}).`);
-    console.log(`[receipts] ${user.user_id}: на проверку — ${reason}`);
-    return true;
-  }
-  updateRow(row.id, { status: "paid", paid: row.due, note: null });
+
+  const file = pdf ?? files[0];
+  const reason = db().transaction(() => {
+    const current = getRow(row.id);
+    if (!current || isSettled(current)) return undefined;
+    let note = check.reason;
+    if (check.hash && !db().prepare("INSERT OR IGNORE INTO receipts (hash, chat_id, payer_id, at) VALUES (?, ?, ?, ?)")
+      .run(check.hash, row.chat_id, user.user_id, Date.now()).changes) note = "этот чек уже присылали";
+    if (note === null) {
+      updateRow(row.id, { status: "paid", paid: row.due, note: null });
+    } else {
+      updateRow(row.id, { status: "review", note, file_type: file?.type ?? null, file_token: file?.payload?.token ?? null });
+    }
+    return note;
+  })();
+  if (reason === undefined) return true;
   await refreshLedgerMessage(row.chat_id, row.game_date);
-  await reply(`✅ ${who}оплата ${row.due} ₽ за игру ${shortDate(row.game_date)} принята.`);
-  console.log(`[receipts] ${user.user_id}: чек на ${row.due} ₽ принят (игра ${row.game_date})`);
+  await reply(reason === null
+    ? `✅ ${who}оплата ${row.due} ₽ за игру ${shortDate(row.game_date)} принята.`
+    : `🧾 ${who}чек на ручной проверке (${reason}).`)
+    .catch((err) => console.warn("[receipts] результат сохранён, ответ пользователю не отправлен:", err));
   return true;
 }

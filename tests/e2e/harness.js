@@ -37,6 +37,7 @@ function startMock() {
     subscriptions: [{ url: "https://old-tunnel.trycloudflare.com/webhook", time: 0 }],
     deletedSubscriptions: [],
     hangOnce: new Set(), // пути, на которых «MAX» один раз не отвечает (проверка таймаутов)
+    failOnce: new Set(), // запрос к указанному пути один раз возвращает HTTP 503
     // Несколько чатов: названия, участники и админы по чатам (по умолчанию — все во всех, админ — общий).
     chatTitles: { "-1": "Работяги", "-2": "Лига Джентельменов" },
     chatMembers: {}, // { "-2": [2, 5] }
@@ -72,6 +73,7 @@ function startMock() {
       const p = u.pathname;
       const mid = u.searchParams.get("message_id");
       calls.push(`${req.method} ${p}${u.search}`);
+      if (state.failOnce.delete(`${req.method} ${p}`)) return send(res, {}, 503);
       if (state.hangOnce.has(p)) {
         state.hangOnce.delete(p);
         return; // не отвечаем — как зависшее соединение
@@ -195,7 +197,7 @@ class Harness {
       BOT_TOKEN: "test",
       CHAT_ID: String(GROUP),
       PORT: String(this.botPort),
-      WEBHOOK_SECRET: "",
+      WEBHOOK_SECRET: "test-webhook-secret",
       AUTO_REGISTER_WEBHOOK: "false",
       MAX_API_BASE_URL: `http://127.0.0.1:${this.mock.port}`,
       DOTENV_CONFIG_PATH: path.join(this.dataDir, "no.env"), // ваш .env в тесты не попадает
@@ -244,6 +246,14 @@ class Harness {
     fs.rmSync(this.dataDir, { recursive: true, force: true });
   }
 
+  async waitFor(check, timeoutMs = 5000) {
+    const until = Date.now() + timeoutMs;
+    while (!check()) {
+      if (Date.now() >= until) throw new Error("состояние теста не наступило вовремя");
+      await sleep(25);
+    }
+  }
+
   /** Ждёт, пока бот перестанет обращаться к MAX (очередь лимитов — до 0,5 с между вызовами). */
   async idle(quietMs = 900) {
     let last = -1;
@@ -270,7 +280,7 @@ class Harness {
     }
     return fetch(`http://127.0.0.1:${this.botPort}/webhook`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "X-Max-Bot-Api-Secret": "test-webhook-secret" },
       body: JSON.stringify(update),
     });
   }

@@ -161,7 +161,7 @@ export function answerCallback(
   chatId: number,
   callbackId: string,
   options: { notification?: string; message?: NewMessageBody } = {},
-): Promise<{ success: boolean; message?: string }> {
+): Promise<void> {
   return throttled(chatId, () =>
     request(
       "POST",
@@ -172,7 +172,10 @@ export function answerCallback(
         message: options.message,
       },
     ),
-  );
+  ).then(() => undefined, (err: unknown) => {
+    // Повтор всего обработчика после ошибки уведомления повторил бы действие кнопки.
+    console.warn("[bot] не удалось ответить на callback:", err);
+  });
 }
 
 /** GET /chats/{chatId}/members/admins — список администраторов чата (для проверки прав). */

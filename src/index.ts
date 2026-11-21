@@ -3,21 +3,35 @@ import fs from "fs";
 import http from "http";
 import https from "https";
 import { config } from "./config";
-import { createWebhookApp } from "./webhookServer";
-import { startScheduler } from "./scheduler";
-import { startPolling, stopPolling } from "./poller";
+import { createWebhookApp, handleUpdate } from "./webhookServer";
+import { startScheduler, stopScheduler } from "./scheduler";
+import { isPollingReady, startPolling, stopPolling } from "./poller";
 import { refreshRosterOnStartup } from "./sessionLogic";
-import { refreshVoteMessage } from "./voteLogic";
-import { loadSessionsFromDisk, flushSessionsToDiskSync } from "./store";
+import { publishVoteResults, refreshVoteMessage } from "./voteLogic";
+import { loadSessionsFromDisk, flushSessionsToDiskSync, syncMatchHistory } from "./store";
+import { pruneMatchHistory } from "./matchHistory";
+import { pruneIncomingUpdates, startUpdateWorker, stopUpdateWorker } from "./updateQueue";
 import { deleteSubscription, getSubscriptions, registerWebhook, setBotCommands } from "./maxApi";
 import { USER_MENU_COMMANDS } from "./actions";
 import { initChatSettings } from "./settingsStore";
 
 async function main(): Promise<void> {
+  if (config.updatesMode === "webhook" && (!/^[A-Za-z0-9_-]{5,256}$/.test(config.webhookSecret) || config.webhookSecret === "change_me_please")) {
+    throw new Error("В режиме webhook задайте собственный WEBHOOK_SECRET длиной 5–256 символов");
+  }
   loadSessionsFromDisk();
   initChatSettings(config.chatIds); // настройки чатов в базе: прежние чаты — как были, новые — по умолчанию
+  syncMatchHistory();
+  pruneMatchHistory();
+  pruneIncomingUpdates();
 
-  const app = createWebhookApp();
+  let started = false;
+  let stopping = false;
+  let webhookCheckedAt = 0;
+  let webhookCheck: NodeJS.Timeout | undefined;
+  const app = createWebhookApp(() => started && !stopping && (config.updatesMode === "polling"
+    ? isPollingReady()
+    : webhookCheckedAt > 0 && Date.now() - webhookCheckedAt < 90_000));
 
   // Если заданы TLS_CERT_PATH/TLS_KEY_PATH — поднимаем HTTPS напрямую.
   // Иначе — обычный HTTP-сервер (для случая, когда TLS терминируется на
@@ -27,7 +41,7 @@ async function main(): Promise<void> {
   // сертификатом от доверенного центра или Минцифры — самоподписанные
   // сертификаты и голый HTTP на стороне MAX больше не поддерживаются.
   let server: http.Server | https.Server;
-  if (config.tlsCertPath && config.tlsKeyPath) {
+  if (config.updatesMode === "webhook" && config.tlsCertPath && config.tlsKeyPath) {
     server = https.createServer(
       {
         cert: fs.readFileSync(config.tlsCertPath),
@@ -49,9 +63,24 @@ async function main(): Promise<void> {
     console.log(`[server] слушаю ${host ?? "все адреса"}:${config.port}, путь вебхука: /webhook`);
   });
 
-  if (config.updatesMode === "polling") {
-    void startPolling();
-  } else if (config.autoRegisterWebhook) {
+  const shutdown = (signal: string) => {
+    if (stopping) return;
+    stopping = true;
+    console.log(`[server] получен ${signal}, завершаю обработку события`);
+    stopPolling();
+    stopScheduler();
+    clearTimeout(webhookCheck);
+    server.close();
+    setTimeout(() => process.exit(0), 15_000).unref();
+    void stopUpdateWorker().finally(() => {
+      flushSessionsToDiskSync();
+      process.exit(0);
+    });
+  };
+  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+
+  if (config.updatesMode === "webhook" && config.autoRegisterWebhook) {
     if (!config.publicWebhookUrl) {
       console.warn("[webhook] AUTO_REGISTER_WEBHOOK=true, но PUBLIC_WEBHOOK_URL не задан");
     } else {
@@ -79,7 +108,7 @@ async function main(): Promise<void> {
 
   // Меню «/» в MAX общее для всех — показываем в нём только команды участников.
   setBotCommands(USER_MENU_COMMANDS)
-    .then(() => console.log("[bot] меню команд обновлено: /status, /mvp, /help"))
+    .then(() => console.log("[bot] меню команд обновлено"))
     .catch((err) => console.warn("[bot] не удалось обновить меню команд:", err instanceof Error ? err.message : err));
 
   startScheduler();
@@ -88,18 +117,28 @@ async function main(): Promise<void> {
   for (const chatId of config.chatIds) {
     void refreshRosterOnStartup(chatId);
     void refreshVoteMessage(chatId); // текст и кнопки голосования — по текущей версии бота
+    void publishVoteResults(chatId);
   }
-
-  const shutdown = (signal: string) => {
-    console.log(`[server] получен ${signal}, сохраняю состояние и завершаюсь`);
-    stopPolling();
-    flushSessionsToDiskSync();
-    server.close(() => process.exit(0));
-    // На случай, если сервер не закрылся за разумное время
-    setTimeout(() => process.exit(0), 3000).unref();
-  };
-  process.on("SIGINT", () => shutdown("SIGINT"));
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  startUpdateWorker(handleUpdate);
+  started = true;
+  if (config.updatesMode === "polling") {
+    void startPolling().catch((err) => console.error("[poller] не удалось запустить приём:", err));
+  } else {
+    const check = async () => {
+      try {
+        const { subscriptions } = await getSubscriptions();
+        const registered = config.publicWebhookUrl
+          ? subscriptions.some((sub) => sub.url === config.publicWebhookUrl)
+          : subscriptions.length > 0;
+        webhookCheckedAt = registered ? Date.now() : 0;
+      } catch (err) {
+        console.warn("[webhook] не удалось проверить подписку:", err);
+      } finally {
+        if (!stopping) webhookCheck = setTimeout(() => void check(), 30_000);
+      }
+    };
+    void check();
+  }
 }
 
 main().catch((err) => {

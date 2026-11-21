@@ -27,6 +27,7 @@ export interface FootballSession {
   voteAutoStarted?: boolean; // голосование за MVP по этой игре уже запускалось автоматически
   draft?: Draft; // дележка на команды
   mvpDone?: boolean; // голосование за MVP этой игры подведено — дележку внизу больше не держим
+  appliedRosterEvents?: string[];
 }
 
 /** Дележка: админ выбирает двух капитанов, капитаны по очереди выбирают игроков основы. */
@@ -63,6 +64,7 @@ export interface VoteCandidate {
 
 /** Один отданный голос — храним, чтобы все в чате видели, кто за кого проголосовал (п.ТЗ: прозрачность). */
 export interface VoteRecord {
+  callbackId?: string; // повтор доставки этого нажатия не должен списать ещё один голос
   voterId: number;
   voterName: string;
   candidateIndex: number;

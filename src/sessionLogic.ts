@@ -314,6 +314,7 @@ async function addPlayers(
   userId: number,
   newPlayers: NewPlayer[],
   sender: MaxUser,
+  eventId?: string,
 ): Promise<void> {
   for (const np of newPlayers) {
     session.players.push({
@@ -327,17 +328,24 @@ async function addPlayers(
     });
   }
   recomputeReserveFlags(session);
+  saveRosterChange(session, eventId);
   await repostRoster(session);
+}
+
+function saveRosterChange(session: FootballSession, eventId?: string): void {
+  if (eventId) session.appliedRosterEvents = [...(session.appliedRosterEvents ?? []).slice(-63), eventId];
+  setSession(session);
 }
 
 /**
  * Удаляет запись и обновляет список. Если из-за этого кто-то перешёл из
  * резерва в основу — сообщаем в чат, чтобы он (или записавший его) узнал.
  */
-async function removePlayerAt(session: FootballSession, index: number, byAdmin = false): Promise<void> {
+async function removePlayerAt(session: FootballSession, index: number, byAdmin = false, eventId?: string): Promise<void> {
   const wasReserve = new Set(session.players.filter((p) => p.isReserve));
   const [removed] = session.players.splice(index, 1);
   recomputeReserveFlags(session);
+  saveRosterChange(session, eventId);
 
   // Сначала — кто ушёл и кто поднялся из резерва, потом свежий список (он должен быть последним в чате):
   //   ➖ Рома ушёл из записи
@@ -396,9 +404,14 @@ export async function handlePlusCommand(
   userId: number,
   names: string[],
   sender: MaxUser,
+  eventId?: string,
 ): Promise<"already" | void> {
   const session = getSession(chatId);
   if (!session) return; // нет активной записи в этом чате
+  if (eventId && session.appliedRosterEvents?.includes(eventId)) {
+    await repostRoster(session);
+    return;
+  }
   if (!isSignupOpen(session)) {
     await api.sendMessageToChat(chatId, { text: signupClosedText(session) });
     return;
@@ -415,14 +428,14 @@ export async function handlePlusCommand(
       await api.sendMessageToChat(chatId, { text: error });
       return;
     }
-    await addPlayers(session, userId, names.map((displayName) => ({ displayName })), sender);
+    await addPlayers(session, userId, names.map((displayName) => ({ displayName })), sender, eventId);
     return;
   }
 
   // Голый "+": записываем по профилю; уже записан — ничего не делаем и ни о чём не спрашиваем
   // (друга записывают сразу с именем: «+Рома»).
   if (alreadyRegistered) return "already";
-  await addPlayers(session, userId, [playerFromProfile(sender)], sender);
+  await addPlayers(session, userId, [playerFromProfile(sender)], sender, eventId);
 }
 
 /** Обработка текстового сообщения "-Имя". */
@@ -430,9 +443,14 @@ export async function handleMinusCommand(
   chatId: number,
   userId: number,
   name?: string,
+  eventId?: string,
 ): Promise<void> {
   const session = getSession(chatId);
   if (!session) return;
+  if (eventId && session.appliedRosterEvents?.includes(eventId)) {
+    await repostRoster(session);
+    return;
+  }
 
   const own = session.players.filter((p) => p.userId === userId);
   if (own.length === 0) return; // записей этого пользователя нет — ничего не делаем
@@ -446,7 +464,7 @@ export async function handleMinusCommand(
   const self = name ? undefined : own.find((p) => p.profileName);
   const target = named[0] ?? self ?? (own.length === 1 ? own[0] : undefined);
   if (target) {
-    await removePlayerAt(session, session.players.indexOf(target));
+    await removePlayerAt(session, session.players.indexOf(target), false, eventId);
     return;
   }
 
@@ -458,9 +476,13 @@ export async function handleMinusCommand(
 }
 
 /** Выбор в списке «Кого удалить?» — удаляем сразу, без повторного подтверждения. */
-export async function handleRemovePick(chatId: number, userId: number, name: string): Promise<void> {
+export async function handleRemovePick(chatId: number, userId: number, name: string, eventId?: string): Promise<void> {
   const session = getSession(chatId);
   if (!session) return;
+  if (eventId && session.appliedRosterEvents?.includes(eventId)) {
+    await repostRoster(session);
+    return;
+  }
   if (!isSignupOpen(session)) {
     await api.sendMessageToChat(chatId, { text: signupClosedText(session) });
     return;
@@ -469,7 +491,7 @@ export async function handleRemovePick(chatId: number, userId: number, name: str
   const index = findOwnIndex(session, userId, name);
   if (index === -1) return;
 
-  await removePlayerAt(session, index);
+  await removePlayerAt(session, index, false, eventId);
 }
 
 // ---- Обработка нажатий на инлайн-кнопки ----

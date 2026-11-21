@@ -11,7 +11,7 @@ module.exports = {
     const started = Date.now();
     await t.post(t.messageUpdate(1, "/Всем тест"));
     await t.post(t.messageUpdate(2, "+"));
-    await t.idle(2500);
+    await t.waitFor(() => t.lines(t.roster()).includes("1. Ruslan"), 9000);
     const took = (Date.now() - started) / 1000;
     t.ok(t.log.includes("нет ответа за 1.5 с"), "зависший запрос оборван по таймауту", t.log.split("\n").filter((l) => l.includes("members")).slice(-2));
     t.ok(t.lines(t.roster()).join("|") === "1. Ruslan" && took < 10, `следующая команда обработана без многоминутной паузы (${took.toFixed(1)} с)`, t.lines(t.roster()));

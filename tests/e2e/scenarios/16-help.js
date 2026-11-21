@@ -11,7 +11,7 @@ module.exports = {
   name: "Инструкция: участнику — только его команды, админу — все админские",
   async run(t) {
     const menu = (t.mock.state.commands || []).map((c) => c.name).join(",");
-    t.ok(menu === "status,mvp,help", "меню «/» в MAX — только команды участников", menu);
+    t.ok(menu === "status,mvp,history,help", "меню «/» в MAX — только команды участников", menu);
 
     await t.say(1, "/старт");
     await t.say(2, "+");

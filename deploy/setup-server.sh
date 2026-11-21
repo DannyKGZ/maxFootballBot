@@ -7,6 +7,8 @@ set -euo pipefail
 REPO="${REPO:-https://github.com/DannyKGZ/maxFootballBot.git}"
 APP_DIR=/opt/max-football-bot
 APP_USER=maxbot
+RELEASES=/opt/max-football-bot-releases
+LIBEXEC=/usr/local/libexec/max-football-bot
 
 [ "$(id -u)" -eq 0 ] || { echo "Запустите от root (sudo -i)"; exit 1; }
 
@@ -33,39 +35,44 @@ timedatectl set-timezone Europe/Moscow || true
 
 echo "==> Пользователь $APP_USER и код в $APP_DIR"
 id -u "$APP_USER" >/dev/null 2>&1 || useradd --system --create-home --shell /usr/sbin/nologin "$APP_USER"
-if [ ! -d "$APP_DIR/.git" ]; then
-  git clone "$REPO" "$APP_DIR"
-fi
-mkdir -p "$APP_DIR/data/backups"
-chown -R "$APP_USER:$APP_USER" "$APP_DIR"
+as_app() { sudo -u "$APP_USER" -H -- "$@"; }
 
-echo "==> Сборка"
-sudo -u "$APP_USER" -H bash -c "cd '$APP_DIR' && npm ci && npm run build"
+# Привилегированные скрипты и юниты берём из отдельного root-каталога.
+trusted=$(mktemp -d)
+trap 'rm -rf -- "$trusted"' EXIT
+git clone -q --branch main --single-branch -- "$REPO" "$trusted"
+if [ ! -d "$APP_DIR/.git" ]; then
+  install -d -m 755 "$APP_DIR"
+  cp -a "$trusted/." "$APP_DIR/"
+  chown -R "$APP_USER:$APP_USER" "$APP_DIR"
+fi
+as_app mkdir -p "$APP_DIR/data/backups"
 
 echo "==> .env"
 if [ ! -f "$APP_DIR/.env" ]; then
-  cp "$APP_DIR/.env.example" "$APP_DIR/.env"
-  sed -i 's/^UPDATES_MODE=.*/UPDATES_MODE=polling/; s/^AUTO_REGISTER_WEBHOOK=.*/AUTO_REGISTER_WEBHOOK=false/' "$APP_DIR/.env"
-  chown "$APP_USER:$APP_USER" "$APP_DIR/.env"
-  chmod 600 "$APP_DIR/.env"
+  cd "$APP_DIR"
+  as_app bash -c 'umask 077; sed -e "s/^UPDATES_MODE=.*/UPDATES_MODE=polling/" -e "s/^PORT=.*/PORT=8443/" .env.example > .env'
   NEED_ENV=1
 fi
 
 echo "==> Сервис systemd, автодеплой и ежедневный бэкап базы"
-install -m 644 "$APP_DIR/deploy/max-football-bot.service" /etc/systemd/system/max-football-bot.service
-echo "30 4 * * * $APP_USER $APP_DIR/deploy/backup.sh >> $APP_DIR/data/backups/backup.log 2>&1" > /etc/cron.d/max-football-bot
-chmod +x "$APP_DIR/deploy/"*.sh
-install -m 644 "$APP_DIR/deploy/max-football-bot-update.service" /etc/systemd/system/max-football-bot-update.service
-install -m 644 "$APP_DIR/deploy/max-football-bot-update.timer" /etc/systemd/system/max-football-bot-update.timer
+systemctl stop max-football-bot-update.timer max-football-bot-update.service 2>/dev/null || true
+install -d -m 755 -o root -g root "$LIBEXEC" "$RELEASES"
+install -m 755 "$trusted/deploy/update.sh" "$trusted/deploy/backup.sh" "$LIBEXEC/"
+install -m 644 "$trusted/deploy/"*.service "$trusted/deploy/max-football-bot-update.timer" /etc/systemd/system/
+echo "30 4 * * * $APP_USER $LIBEXEC/backup.sh >> $APP_DIR/data/backups/backup.log 2>&1" > /etc/cron.d/max-football-bot
+if [[ ! -L "$RELEASES/current" ]] && as_app test -f "$APP_DIR/dist/index.js"; then
+  ln -s "$APP_DIR" "$RELEASES/current"
+fi
 systemctl daemon-reload
 systemctl enable max-football-bot
-systemctl enable --now max-football-bot-update.timer   # автодеплой: раз в час проверяет GitHub
-
-if [ "${NEED_ENV:-0}" = 1 ] || grep -q '^BOT_TOKEN=your_bot_token_here' "$APP_DIR/.env"; then
+if [ "${NEED_ENV:-0}" = 1 ] || as_app grep -Eq '^BOT_TOKEN=(your_bot_token_here)?$' "$APP_DIR/.env"; then
+  "$LIBEXEC/update.sh" --prepare
   echo
   echo "Готово, осталось заполнить $APP_DIR/.env (BOT_TOKEN, CHAT_IDS и др.), затем:"
   echo "  systemctl start max-football-bot && journalctl -u max-football-bot -f"
 else
-  systemctl restart max-football-bot
+  "$LIBEXEC/update.sh"
   echo "Бот запущен. Логи: journalctl -u max-football-bot -f"
 fi
+systemctl enable --now max-football-bot-update.timer

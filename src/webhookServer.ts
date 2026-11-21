@@ -1,4 +1,5 @@
 import express, { Request, Response } from "express";
+import { timingSafeEqual } from "node:crypto";
 import { config, isManagedChat } from "./config";
 import * as api from "./maxApi";
 import { decodePayload } from "./keyboard";
@@ -37,6 +38,8 @@ import { noteChatActivity } from "./stickyLogic";
 import * as banCommands from "./banCommands";
 import * as roles from "./rolesLogic";
 import { fullName } from "./messageFormatter";
+import { buildMatchHistory, HISTORY_RE } from "./matchHistory";
+import { enqueueWebhook, isMaxUpdate } from "./updateQueue";
 
 // /голос — показать голосование за MVP (для всех).
 const VOTE_RE = /^\/(голос|vote)$/i;
@@ -67,6 +70,12 @@ interface TextCommand {
 const chatOf = (r: actions.ActionResult) => r.chat;
 
 const TEXT_COMMANDS: TextCommand[] = [
+  {
+    re: HISTORY_RE,
+    run: async (c, m) => {
+      for (const text of buildMatchHistory(c.group, m[1])) await api.sendMessageToChat(c.reply, { text });
+    },
+  },
   { re: NICK_RE, run: (c, m) => nickCommand(c.userId, m[2]) },
   { re: VOTE_RE, where: "group", run: (c) => voteLogic.voteCommand(c.group, c.userId) },
   { re: draft.DRAFT_RE, where: "group", run: (c, m) => draft.draftCommand(c.group, c.userId, m[2]) },
@@ -197,13 +206,13 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
   // «+» — записать себя по профилю; «+Сергей +Владимир» — записать нескольких сразу.
   if (text.startsWith("+")) {
     const names = text.split("+").map((s) => s.trim()).filter(Boolean);
-    await sessionLogic.handlePlusCommand(chatId, userId, names, message.sender);
+    await sessionLogic.handlePlusCommand(chatId, userId, names, message.sender, message.body.mid && `message:${message.body.mid}`);
     return;
   }
 
   // «-» — убрать себя; «-Рома» — убрать свою запись с этим именем (с подтверждением).
   if (text.startsWith("-")) {
-    await sessionLogic.handleMinusCommand(chatId, userId, text.slice(1).trim() || undefined);
+    await sessionLogic.handleMinusCommand(chatId, userId, text.slice(1).trim() || undefined, message.body.mid && `message:${message.body.mid}`);
     return;
   }
 
@@ -214,7 +223,7 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
 
 // Все команды бота — для подсказки, если команду написали с ошибкой.
 const KNOWN_COMMANDS = [
-  "статус", "голос", "имя", "mvp", "мвп", "help", "инструкция", "помощь", "составы",
+  "статус", "голос", "имя", "mvp", "мвп", "history", "история", "help", "инструкция", "помощь", "составы",
   "старт", "закрыть", "описание", "расписание", "игры", "оплата", "лимит", "напоминания", "должники", "оплатил", "легенда", "манишканосец", "манишки", "голосование", "итоги", "объединить",
   "удалить", "переименовать", "заменить", "поменять", "дележка", "всем", "мвпСезонныйСброс", "мвпОбщийСброс",
 ];
@@ -246,6 +255,7 @@ async function handleMessageCallback(update: MaxUpdate): Promise<void> {
 
   const chatId = message?.recipient?.chat_id ?? (update as { chat_id?: number }).chat_id ?? 0;
   const pressedByUserId = callback.user.user_id;
+  const eventId = `callback:${callback.callback_id}`;
   const action = decodePayload(callback.payload);
 
   console.log(
@@ -322,10 +332,10 @@ async function handleMessageCallback(update: MaxUpdate): Promise<void> {
     let toast: string | undefined;
     switch (action.a) {
       case "join":
-        if ((await sessionLogic.handlePlusCommand(chatId, pressedByUserId, [], callback.user)) === "already") toast = "Вы уже записаны";
+        if ((await sessionLogic.handlePlusCommand(chatId, pressedByUserId, [], callback.user, eventId)) === "already") toast = "Вы уже записаны";
         break;
       case "leave":
-        await sessionLogic.handleMinusCommand(chatId, pressedByUserId);
+        await sessionLogic.handleMinusCommand(chatId, pressedByUserId, undefined, eventId);
         break;
       case "help":
         toast = (await actions.sendHelp(chatId, pressedByUserId)).toast;
@@ -358,6 +368,7 @@ async function handleMessageCallback(update: MaxUpdate): Promise<void> {
           senderDisplayName(callback.user),
           action.c,
           fullName(callback.user),
+          callback.callback_id,
         );
         toast =
           outcome === "self_vote"
@@ -405,7 +416,7 @@ async function handleMessageCallback(update: MaxUpdate): Promise<void> {
       await sessionLogic.handleRemoveNo(chatId, pressedByUserId);
       break;
     case "rm_pick":
-      await sessionLogic.handleRemovePick(chatId, pressedByUserId, action.n);
+      await sessionLogic.handleRemovePick(chatId, pressedByUserId, action.n, eventId);
       break;
     case "restart_yes":
       await sessionLogic.handleRestartYes(chatId, pressedByUserId);
@@ -443,7 +454,7 @@ async function handleMessageCallback(update: MaxUpdate): Promise<void> {
 
 /**
  * Обработка одного апдейта MAX — общая для вебхука (POST /webhook) и long
- * polling (poller.ts). Ошибки логируются и не прерывают приём следующих апдейтов.
+ * polling (poller.ts). Ошибки передаём очереди для повторной обработки.
  */
 export async function handleUpdate(update: MaxUpdate): Promise<void> {
   // Подсказка для первичной настройки: chat_id чата, куда добавили бота,
@@ -453,46 +464,51 @@ export async function handleUpdate(update: MaxUpdate): Promise<void> {
     if (chatId) console.log(`[bot] бота добавили в чат, chat_id=${chatId} — впишите его в CHAT_ID`);
   }
 
-  try {
-    if (update.update_type === "bot_started") {
-      // Пользователь открыл личный чат с ботом и нажал «Начать» — приветствие/панель.
-      const started = update as { chat_id?: number; user?: { user_id: number; name?: string } };
-      if (started.chat_id && started.user) {
-        if (await dmAllowed(started.user.user_id, started.user.name)) await adminPanel.sendPanel(started.chat_id, started.user.user_id);
-        else await api.sendMessageToChat(started.chat_id, { text: DM_DENIED });
-      }
-    } else if (update.update_type === "message_created") {
-      await handleMessageCreated(update);
-    } else if (update.update_type === "message_callback") {
-      await handleMessageCallback(update);
+  if (update.update_type === "bot_started") {
+    const started = update as { chat_id?: number; user?: { user_id: number; name?: string } };
+    if (started.chat_id && started.user) {
+      if (await dmAllowed(started.user.user_id, started.user.name)) await adminPanel.sendPanel(started.chat_id, started.user.user_id);
+      else await api.sendMessageToChat(started.chat_id, { text: DM_DENIED });
     }
-  } catch (err) {
-    console.error(`[bot] ошибка обработки update_type=${update?.update_type}:`, err);
+  } else if (update.update_type === "message_created") {
+    await handleMessageCreated(update);
+  } else if (update.update_type === "message_callback") {
+    await handleMessageCallback(update);
   }
 }
 
-export function createWebhookApp(): express.Express {
+export function createWebhookApp(isReady: () => boolean): express.Express {
   const app = express();
-  app.use(express.json({ limit: "1mb" }));
 
-  app.post("/webhook", async (req: Request, res: Response) => {
-    // Проверка секрета вебхука, если он настроен.
-    if (config.webhookSecret) {
-      const provided = req.header("X-Max-Bot-Api-Secret");
-      if (provided !== config.webhookSecret) {
+  if (config.updatesMode === "webhook") {
+    const secret = Buffer.from(config.webhookSecret);
+    app.post("/webhook", (req, res, next) => {
+      const provided = Buffer.from(req.header("X-Max-Bot-Api-Secret") ?? "");
+      if (!secret.length || provided.length !== secret.length || !timingSafeEqual(provided, secret)) {
         res.status(401).json({ success: false, message: "invalid secret" });
         return;
       }
-    }
-
-    // Отвечаем 200 сразу же (MAX требует ответ в течение 30 секунд и ретраит иначе),
-    // а сам апдейт обрабатываем асинхронно.
-    res.status(200).json({ success: true });
-
-    await handleUpdate(req.body as MaxUpdate);
-  });
+      next();
+    }, express.json({ limit: "1mb" }), (req: Request, res: Response) => {
+      if (!isMaxUpdate(req.body)) {
+        res.status(400).json({ success: false });
+        return;
+      }
+      try {
+        enqueueWebhook(req.body);
+        res.json({ success: true });
+      } catch (err) {
+        console.error("[webhook] не удалось сохранить событие:", err);
+        res.status(503).json({ success: false });
+      }
+    });
+  }
 
   app.get("/health", (_req, res) => res.json({ ok: true }));
+  app.get("/ready", (_req, res) => {
+    const ok = isReady();
+    res.status(ok ? 200 : 503).json({ ok });
+  });
 
   return app;
 }

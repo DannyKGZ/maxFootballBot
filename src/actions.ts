@@ -243,5 +243,6 @@ export async function sendHelp(groupChatId: number, userId: number): Promise<Act
 export const USER_MENU_COMMANDS = [
   { name: "status", description: "Актуальна ли запись, сколько свободных мест" },
   { name: "mvp", description: "Рейтинг MVP за сезон и за всё время" },
+  { name: "history", description: "Составы и MVP матчей за последние полгода" },
   { name: "help", description: "Инструкция — придёт в личку" },
 ];

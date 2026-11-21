@@ -5,8 +5,10 @@ import { runNotifications } from "./notifications";
 import { getChatOptions, loadSchedule } from "./settingsStore";
 import { slotCrons } from "./gameDays";
 import { rolloverIfDue } from "./seasonLogic";
-import { getAllSessions, getAllVoteSessions } from "./store";
-import { autoStartVoteIfDue, finalizeVote } from "./voteLogic";
+import { getAllSessions, getAllVoteSessions, syncMatchHistory } from "./store";
+import { pruneMatchHistory } from "./matchHistory";
+import { pruneIncomingUpdates } from "./updateQueue";
+import { autoStartVoteIfDue, finalizeVote, publishVoteResults } from "./voteLogic";
 
 // Свои cron-задачи публикации записи у каждого чата (у /игры — по одной на пару).
 const tasks = new Map<number, ScheduledTask[]>();
@@ -49,6 +51,9 @@ export function applyChatSchedule(chatId: number): void {
  * автозакрытие голосования. Отметки хранятся в базе — рестарт не даёт повторов.
  */
 async function tick(now = Date.now()): Promise<void> {
+  syncMatchHistory(now);
+  pruneMatchHistory(now);
+  pruneIncomingUpdates(now);
   // Игра началась — запись закрывается, список фиксируется.
   const sessions = getAllSessions().filter((s) => isManagedChat(s.chatId)); // только чаты из CHAT_IDS
   for (const session of sessions) {
@@ -64,6 +69,7 @@ async function tick(now = Date.now()): Promise<void> {
   // Новый сезон / игровой год: сезонный рейтинг MVP с нуля, 1 декабря — легенда года.
   for (const chatId of config.chatIds) {
     await rolloverIfDue(chatId, new Date(now)).catch((err) => console.error(`[scheduler] ошибка смены сезона в чате ${chatId}:`, err));
+    await publishVoteResults(chatId);
   }
 
   // Через час после начала игры (в 21:30) голосование за MVP открывается само.
@@ -88,16 +94,23 @@ async function tick(now = Date.now()): Promise<void> {
 }
 
 let ticking = false;
+let timer: NodeJS.Timeout | undefined;
 
 /** Старт: расписание, сохранённое админом (иначе CRON_SCHEDULE), и периодические проверки. */
 export function startScheduler(): void {
   if (config.chatIds.length === 0) console.warn("[scheduler] CHAT_IDS (CHAT_ID) не задан — публиковать запись некуда");
   for (const chatId of config.chatIds) applyChatSchedule(chatId);
-  setInterval(() => {
+  timer = setInterval(() => {
     if (ticking) return; // предыдущая проверка ещё идёт (очистка чата может занять время)
     ticking = true;
     tick()
       .catch((err) => console.error("[scheduler] ошибка периодической проверки:", err))
       .finally(() => (ticking = false));
   }, config.tickIntervalMs);
+}
+
+export function stopScheduler(): void {
+  clearInterval(timer);
+  for (const chatTasks of tasks.values()) for (const task of chatTasks) task.stop();
+  tasks.clear();
 }

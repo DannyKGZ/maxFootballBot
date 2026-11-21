@@ -1,6 +1,7 @@
 import { db } from "./db";
 import { config } from "./config";
 import { FootballSession, PendingAction, VoteSession } from "./types";
+import { matchExpiresAt, rememberPlayedMatch } from "./matchHistory";
 
 // Состояние бота по чатам. Источник правды — SQLite (см. db.ts); в памяти —
 // кэш тех же объектов: обработчики меняют объект и потом вызывают set*, а
@@ -30,8 +31,11 @@ export function getAllSessions(): FootballSession[] {
 }
 
 export function setSession(session: FootballSession): void {
+  db().transaction(() => {
+    db().prepare("INSERT OR REPLACE INTO sessions (chat_id, data) VALUES (?, ?)").run(session.chatId, JSON.stringify(session));
+    rememberPlayedMatch(session);
+  })();
   sessions.set(session.chatId, session);
-  db().prepare("INSERT OR REPLACE INTO sessions (chat_id, data) VALUES (?, ?)").run(session.chatId, JSON.stringify(session));
 }
 
 export function deleteSession(chatId: number): void {
@@ -48,10 +52,27 @@ export function getAllArchivedSessions(): FootballSession[] {
 }
 
 export function setArchivedSession(session: FootballSession): void {
+  db().transaction(() => {
+    db().prepare("INSERT OR REPLACE INTO archived_sessions (chat_id, data) VALUES (?, ?)").run(session.chatId, JSON.stringify(session));
+    rememberPlayedMatch(session);
+  })();
   archived.set(session.chatId, session);
-  db()
-    .prepare("INSERT OR REPLACE INTO archived_sessions (chat_id, data) VALUES (?, ?)")
-    .run(session.chatId, JSON.stringify(session));
+}
+
+export function syncMatchHistory(now = Date.now()): void {
+  for (const session of archived.values()) {
+    if (matchExpiresAt(Date.parse(session.date)) <= now) {
+      db().prepare("DELETE FROM archived_sessions WHERE chat_id = ?").run(session.chatId);
+      archived.delete(session.chatId);
+    } else rememberPlayedMatch(session, now);
+  }
+  for (const session of sessions.values()) {
+    if (matchExpiresAt(Date.parse(session.date)) <= now) deleteSession(session.chatId);
+    else rememberPlayedMatch(session, now);
+  }
+  for (const vote of votes.values()) {
+    if (matchExpiresAt(Date.parse(vote.gameDate)) <= now) deleteVoteSession(vote.chatId);
+  }
 }
 
 // ---- Открытые вопросы ("Да/Нет", "напишите имя") ----
@@ -94,8 +115,20 @@ export function setVoteSession(vote: VoteSession): void {
 }
 
 export function deleteVoteSession(chatId: number): void {
-  votes.delete(chatId);
   db().prepare("DELETE FROM votes WHERE chat_id = ?").run(chatId);
+  votes.delete(chatId);
+}
+
+export function commitVoteResult(vote: VoteSession, persistResult: () => void): void {
+  const current = sessions.get(vote.chatId);
+  const finished = current?.date === vote.gameDate ? { ...current, mvpDone: true } : undefined;
+  db().transaction(() => {
+    persistResult();
+    if (finished) db().prepare("UPDATE sessions SET data = ? WHERE chat_id = ?").run(JSON.stringify(finished), vote.chatId);
+    db().prepare("DELETE FROM votes WHERE chat_id = ?").run(vote.chatId);
+  })();
+  if (finished && current) current.mvpDone = true;
+  votes.delete(vote.chatId);
 }
 
 // ---- Сообщения бота (для очистки) и рейтинг ----

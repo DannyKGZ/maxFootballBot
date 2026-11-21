@@ -1,4 +1,6 @@
 import { config } from "./config";
+import { db } from "./db";
+import { matchExpiresAt, saveMatchMvp } from "./matchHistory";
 import * as api from "./maxApi";
 import { voteCandidatesKeyboard } from "./keyboard";
 import {
@@ -12,7 +14,7 @@ import {
 import { isChatAdmin } from "./sessionLogic";
 import { RoleHolder, addMvpWins, getChatOptions, getMvpRating, getSeasonStart } from "./settingsStore";
 import {
-  deleteVoteSession,
+  commitVoteResult,
   getArchivedSession,
   getRatingMessage,
   getSession,
@@ -181,9 +183,15 @@ export async function castVote(
   voterName: string,
   candidateIndex: number,
   voterFullName = voterName,
+  callbackId?: string,
 ): Promise<CastVoteOutcome> {
   const vote = getVoteSession(chatId);
   if (!vote) return "no_vote";
+  if (callbackId && vote.votes.some((v) => v.callbackId === callbackId)) {
+    if (vote.votes.length >= totalVotes(vote)) await finalizeVote(chatId, "all_voted");
+    else await repostVoteMessage(chatId);
+    return "voted";
+  }
 
   const candidate = vote.candidates.find((c) => c.index === candidateIndex);
   if (!candidate) return "invalid_candidate";
@@ -197,6 +205,7 @@ export async function castVote(
 
   vote.voterNames[voterId] ??= voterName;
   vote.votes.push({
+    callbackId,
     voterId,
     voterName,
     candidateIndex: candidate.index,
@@ -284,42 +293,58 @@ function winnerHolder(vote: VoteSession, name: string): RoleHolder | null {
 export async function finalizeVote(chatId: number, reason: boolean | "all_voted"): Promise<void> {
   const vote = getVoteSession(chatId);
   if (!vote) return;
-  // Сразу убираем из стора, чтобы повторный вызов (кнопка + таймер) не посчитал MVP дважды.
-  deleteVoteSession(chatId);
-  if (vote.messageId) await api.deleteMessage(chatId, vote.messageId).catch(() => undefined);
 
   const winners = getVoteWinners(vote);
-  addMvpWins(chatId, winners, winners.map((name) => winnerHolder(vote, name)));
-  // MVP этой игры выбран — её дележку больше не держим внизу (stickyLogic.ts).
-  const game = getSession(chatId);
-  if (game && game.date === vote.gameDate) {
-    game.mvpDone = true;
-    setSession(game);
-  }
+  const game = [getSession(chatId), getArchivedSession(chatId)].find((s) => s?.date === vote.gameDate);
   const note =
     reason === "all_voted"
       ? "\n\nПроголосовали все."
       : reason
         ? "\n\nЗакрыто по времени."
         : "";
-  const congrats = getChatOptions(chatId).mvpCongrats ? pickCongrats(chatId, getVoteWinners(vote).length) : [];
-  const res = await api.sendMessageToChat(chatId, { text: buildMvpResultText(vote, congrats) + note });
+  const expiresAt = matchExpiresAt(Date.parse(vote.gameDate));
+  commitVoteResult(vote, () => {
+    addMvpWins(chatId, winners, winners.map((name) => winnerHolder(vote, name)));
+    saveMatchMvp(vote, winners, game);
+    const congrats = getChatOptions(chatId).mvpCongrats ? pickCongrats(chatId, winners.length) : [];
+    db().prepare("INSERT INTO mvp_announcements (chat_id, expires_at, text, vote_mid, roster_mid) VALUES (?, ?, ?, ?, ?)")
+      .run(chatId, expiresAt, buildMvpResultText(vote, congrats) + note, vote.messageId, vote.rosterMessageId ?? null);
+  });
+  await publishVoteResults(chatId);
+}
 
-  // Составы (дележка с упоминаниями и оплатой) тоже остаются.
-  const keep = [
-    getSession(chatId)?.messageId,
-    getSession(chatId)?.draft?.messageId,
-    vote.rosterMessageId,
-    res.message.body.mid,
-    maniskaPromptMessageId(chatId), // кнопка «Я забрал манишки» нужна и после итогов
-  ];
-  for (const messageId of takeSentMessagesForCleanup(chatId, keep)) {
-    try {
-      await api.deleteMessage(chatId, messageId);
-    } catch (err) {
-      // MAX не даёт удалить сообщения старше 24 часов — это ожидаемо и не критично.
-      console.error(`[voteLogic] не удалось удалить сообщение ${messageId}:`, err);
+const publishingResults = new Set<number>();
+
+export async function publishVoteResults(chatId: number): Promise<void> {
+  if (publishingResults.has(chatId)) return;
+  publishingResults.add(chatId);
+  try {
+    const rows = db().prepare("SELECT id, text, vote_mid, roster_mid, result_mid FROM mvp_announcements WHERE chat_id = ? AND expires_at > ? ORDER BY id")
+      .all(chatId, Date.now()) as Array<{ id: number; text: string; vote_mid: string | null; roster_mid: string | null; result_mid: string | null }>;
+    for (const row of rows) {
+      if (row.vote_mid) await api.deleteMessage(chatId, row.vote_mid).catch(() => undefined);
+      if (!row.result_mid) {
+        const res = await api.sendMessageToChat(chatId, { text: row.text });
+        row.result_mid = res.message.body.mid;
+        db().prepare("UPDATE mvp_announcements SET result_mid = ? WHERE id = ?").run(row.result_mid, row.id);
+      }
+      const keep = [
+        getSession(chatId)?.messageId,
+        getSession(chatId)?.draft?.messageId,
+        getVoteSession(chatId)?.messageId,
+        row.roster_mid,
+        row.result_mid,
+        maniskaPromptMessageId(chatId),
+      ];
+      for (const messageId of takeSentMessagesForCleanup(chatId, keep)) {
+        await api.deleteMessage(chatId, messageId).catch((err) => console.error(`[voteLogic] не удалось удалить сообщение ${messageId}:`, err));
+      }
+      db().prepare("DELETE FROM mvp_announcements WHERE id = ?").run(row.id);
     }
+  } catch (err) {
+    console.warn("[voteLogic] итог сохранён, публикация будет повторена:", err);
+  } finally {
+    publishingResults.delete(chatId);
   }
 }
 

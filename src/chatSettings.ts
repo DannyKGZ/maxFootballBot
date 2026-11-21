@@ -118,7 +118,10 @@ export async function handleSettingsAction(groupChatId: number, replyChatId: num
     return "Неизвестная настройка";
   }
   if (messageId) {
-    await api.editMessage(replyChatId, messageId, { text: settingsText(groupChatId, await chatTitle(groupChatId)), attachments: [settingsKeyboard(groupChatId)] });
+    await api.editMessage(replyChatId, messageId, {
+      text: settingsText(groupChatId, await chatTitle(groupChatId)),
+      attachments: [settingsKeyboard(groupChatId)],
+    }).catch((err) => console.warn("[settings] настройка сохранена, экран не обновился:", err));
   }
   return toast;
 }

@@ -82,7 +82,7 @@ export async function handleDescription(groupChatId: number, userId: number, arg
 
   if (startTime) {
     setGameTime(groupChatId, startTime);
-    if (session && gameTimeOf(session) !== startTime) {
+    if (session && Date.parse(session.date) > Date.now() && gameTimeOf(session) !== startTime) {
       const d = new Date(session.date);
       const [h, m] = startTime.split(":").map(Number);
       d.setHours(h, m, 0, 0);
