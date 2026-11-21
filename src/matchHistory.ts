@@ -69,17 +69,19 @@ export function buildMatchHistory(chatId: number, pageArg?: string): string[] {
   for (const row of rows) {
     const date = new Date(row.game_at);
     const roster = JSON.parse(row.roster) as Roster;
-    const winners = row.mvp === null ? null : JSON.parse(row.mvp) as string[];
-    const mvp = winners === null ? "нет сохранённого результата" : winners.join(", ") || "не определён";
+    const winners = new Set<string>(row.mvp === null ? [] : JSON.parse(row.mvp) as string[]);
+    const listPlayers = (names: string[]) => names.map((name, index) => {
+      const badge = winners.has(name) ? " — 🏆 MVP" : "";
+      return `${index + 1}. ${name}${badge}`;
+    });
     const main = roster.filter((player) => !player.isReserve).map((player) => player.displayName);
     const reserve = roster.filter((player) => player.isReserve).map((player) => player.displayName);
     blocks.push([
       `⚽ ${dateFull(date)}, ${timeHM(date)}`,
-      `🏆 MVP: ${mvp}`,
       "",
-      `Состав (${main.length})`,
-      ...main.map((name, index) => `${index + 1}. ${name}`),
-      ...(reserve.length ? ["", `Резерв (${reserve.length})`, ...reserve.map((name, index) => `${index + 1}. ${name}`)] : []),
+      `👥 Состав (${main.length})`,
+      ...listPlayers(main),
+      ...(reserve.length ? ["", `🪑 Резерв (${reserve.length})`, ...listPlayers(reserve)] : []),
     ]);
   }
   if (page < pages) blocks.push([`Следующая страница: /история ${page + 1}`]);

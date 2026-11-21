@@ -29,8 +29,8 @@ module.exports = {
     t.ok(matchExpiresAt(monthEnd.getTime()) === new Date(2027, 1, 28, 20, 30).getTime(), "окончание 6 календарных месяцев округляется к последнему дню");
     await t.say(2, "/история");
     const initial = t.find(/^📚 История матчей/).text;
-    t.ok(initial.includes("🏆 MVP: нет сохранённого результата\n\nСостав (2)\n1. Руслан\n2. Рома\n\nРезерв (1)\n1. Резервный")
-      && initial.includes("Старый состав"), "мигрировали прежний и текущий составы, каждый игрок показан отдельной строкой");
+    t.ok(initial.includes("👥 Состав (2)\n1. Руслан\n2. Рома\n\n🪑 Резерв (1)\n1. Резервный")
+      && initial.includes("Старый состав") && !initial.includes("MVP"), "составы показаны списком без отметки MVP при отсутствии результата");
     t.ok(!initial.includes("Другая лига") && !t.archived(-3), "история изолирована, просроченный архив удалён");
     await t.say(1, "/голосование");
     await t.click(3, t.find(/^🏆 Голосование/), "Руслан");
@@ -40,7 +40,8 @@ module.exports = {
     await t.restartBot();
     await t.say(2, "/история", { dm: true });
     const history = t.find(/^📚 История матчей/, dmOf(2)).text;
-    t.ok(history.includes("🏆 MVP: Руслан\n\nСостав (2)") && history.includes("Старый состав") && t.mvpCount("Руслан") === 1, "результат виден перед составом, обе игры сохранились после рестарта");
+    t.ok(history.includes("1. Руслан — 🏆 MVP\n2. Рома") && !history.includes("MVP:")
+      && history.includes("Старый состав") && t.mvpCount("Руслан") === 1, "MVP отмечен рядом с именем, обе игры сохранились после рестарта");
     t.ok(!!t.find(/^🏆 MVP матча/), "результат доставлен в чат после сбоя");
   },
 };
