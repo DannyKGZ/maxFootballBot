@@ -75,9 +75,11 @@ export function buildMatchHistory(chatId: number, pageArg?: string): string[] {
     const reserve = roster.filter((player) => player.isReserve).map((player) => player.displayName);
     blocks.push([
       `⚽ ${dateFull(date)}, ${timeHM(date)}`,
-      `Состав: ${main.join(", ")}`,
-      ...(reserve.length ? [`Резерв: ${reserve.join(", ")}`] : []),
-      `MVP: ${mvp}`,
+      `🏆 MVP: ${mvp}`,
+      "",
+      `Состав (${main.length})`,
+      ...main.map((name, index) => `${index + 1}. ${name}`),
+      ...(reserve.length ? ["", `Резерв (${reserve.length})`, ...reserve.map((name, index) => `${index + 1}. ${name}`)] : []),
     ]);
   }
   if (page < pages) blocks.push([`Следующая страница: /история ${page + 1}`]);
