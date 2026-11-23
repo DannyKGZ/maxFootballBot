@@ -5,7 +5,7 @@ import * as api from "./maxApi";
 import { currentScheduleText } from "./scheduleLogic";
 import { getArchivedSession, getSession, getVoteSession } from "./store";
 import { FootballSession } from "./types";
-import { computeNextGameDate, isSignupOpen, nextPublicationDate } from "./gameDays";
+import { isSignupOpen, nextPlayablePublication } from "./gameDays";
 import { teamsText } from "./draftLogic";
 
 /**
@@ -71,7 +71,7 @@ export function buildStatusText(chatId: number, now = Date.now()): string {
     lines.push(`📋 Записи нет.${last ? ` Последняя игра: ${formatWhen(new Date(last.date))}, игроков ${last.players.length}.` : ""}`);
   }
 
-  const next = nextPublicationDate(chatId, new Date(now));
+  const next = nextPlayablePublication(chatId, new Date(now));
   const legend = getRole(chatId, "legend", now);
   const maniska = getRole(chatId, "maniska", now);
   lines.push("");
@@ -80,7 +80,7 @@ export function buildStatusText(chatId: number, now = Date.now()): string {
   if (vote) lines.push(`🗳 Голосование MVP: ${vote.votes.length} из ${Object.values(vote.creditsByVoter).reduce((a, b) => a + b, 0)} голосов`);
   lines.push(
     next
-      ? `🗓 Следующая запись: ${formatWhen(next)} → игра ${formatWhen(computeNextGameDate(chatId, next))}`
+      ? `🗓 Следующая запись: ${formatWhen(next.publication)} → игра ${formatWhen(next.game)}`
       : `🗓 Расписание: ${currentScheduleText(chatId)}`,
   );
   return lines.join("\n");

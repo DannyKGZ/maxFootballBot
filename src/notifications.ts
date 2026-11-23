@@ -1,4 +1,5 @@
 import { getChatOptions } from "./settingsStore";
+import { isGameCancelled } from "./gameCancellations";
 import { buildLedgerText, ensureLedger, receiptsEnabled, setLedgerMessage } from "./paymentLedger";
 import { config, isManagedChat } from "./config";
 import * as api from "./maxApi";
@@ -61,7 +62,7 @@ export function dueNotifications(session: FootballSession, now: number): { mark:
 }
 
 async function notifySession(session: FootballSession, now: number, save: (s: FootballSession) => void) {
-  if (session.players.length === 0) return;
+  if (session.players.length === 0 || isGameCancelled(session.chatId, session.date)) return;
   const { mark, send } = dueNotifications(session, now);
   if (mark.length === 0) return;
   // Сначала отмечаем, потом отправляем: при сбое лучше пропустить одно, чем слать дважды.
@@ -69,6 +70,7 @@ async function notifySession(session: FootballSession, now: number, save: (s: Fo
   save(session);
 
   for (const slot of send) {
+    if (isGameCancelled(session.chatId, session.date)) return;
     try {
       if (slot.kind === "reminder") {
         await api.sendMessageToChat(session.chatId, { text: buildReminderText(session) });

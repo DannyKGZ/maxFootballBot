@@ -1,5 +1,6 @@
 import { config } from "./config";
 import { db } from "./db";
+import { isGameCancelled } from "./gameCancellations";
 import { matchExpiresAt, saveMatchMvp } from "./matchHistory";
 import * as api from "./maxApi";
 import { voteCandidatesKeyboard } from "./keyboard";
@@ -77,7 +78,7 @@ export async function startVote(chatId: number, adminUserId: number): Promise<St
  */
 export async function autoStartVoteIfDue(session: FootballSession, now = Date.now()): Promise<boolean> {
   const minutes = getChatOptions(session.chatId).voteAutoStart;
-  if (minutes <= 0 || session.voteAutoStarted) return false;
+  if (minutes <= 0 || session.voteAutoStarted || isGameCancelled(session.chatId, session.date)) return false;
   const due = new Date(session.date).getTime() + minutes * 60_000;
   if (now < due) return false;
   // Только в течение 6 часов после срока: по давно прошедшей игре (например, после
@@ -119,12 +120,17 @@ async function openVote(chatId: number): Promise<StartVoteOutcome> {
 
   // Кнопка «👕 Я забрал манишки» — перед голосованием, чтобы голосование было последним.
   await postManiskaPrompt(session).catch((err) => console.warn("[voteLogic] не удалось отправить кнопку манишек:", err instanceof Error ? err.message : err));
+  if (isGameCancelled(chatId, session.date)) return "no_session";
 
   const res = await api.sendMessageToChat(chatId, {
     text: buildVoteText(vote),
     attachments: [voteKeyboard(vote)],
   });
   vote.messageId = res.message.body.mid;
+  if (isGameCancelled(chatId, session.date)) {
+    await api.deleteMessage(chatId, vote.messageId).catch(() => undefined);
+    return "no_session";
+  }
   setVoteSession(vote);
 
   return "started";
@@ -238,6 +244,10 @@ export async function repostVoteMessage(chatId: number): Promise<boolean> {
     notify: false, // перепост внизу чата — без уведомления (первое сообщение голосования уведомляет)
   });
   vote.messageId = res.message.body.mid;
+  if (isGameCancelled(chatId, vote.gameDate)) {
+    await api.deleteMessage(chatId, vote.messageId).catch(() => undefined);
+    return false;
+  }
   setVoteSession(vote);
   if (old) {
     await api.deleteMessage(chatId, old).catch(() =>

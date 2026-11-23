@@ -67,6 +67,10 @@ CREATE TABLE IF NOT EXISTS match_history (
   PRIMARY KEY (chat_id, game_at)
 );
 CREATE INDEX IF NOT EXISTS match_history_expiry ON match_history (expires_at);
+CREATE TABLE IF NOT EXISTS game_cancellations (
+  chat_id INTEGER NOT NULL, game_date TEXT NOT NULL,
+  PRIMARY KEY (chat_id, game_date)
+);
 CREATE TABLE IF NOT EXISTS mvp_announcements (
   id INTEGER PRIMARY KEY, chat_id INTEGER NOT NULL, expires_at INTEGER NOT NULL,
   text TEXT NOT NULL, vote_mid TEXT, roster_mid TEXT, result_mid TEXT

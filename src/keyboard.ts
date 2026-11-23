@@ -62,7 +62,7 @@ function userMenuRows(): KeyboardButton[][] {
 export function userMenuKeyboard(extraRows: KeyboardButton[][] = []): InlineKeyboardAttachment {
   return {
     type: "inline_keyboard",
-    payload: { buttons: [...extraRows, ...userMenuRows(), [callbackButton("ℹ️ Инструкция", { a: "help" })]] },
+    payload: { buttons: [...extraRows, ...userMenuRows(), [callbackButton("ℹ️ Инструкция", { a: "help" })], [callbackButton("📬 Контакты", { a: "contacts" })]] },
   };
 }
 
@@ -98,6 +98,7 @@ export function adminKeyboard(extraRows: KeyboardButton[][] = []): InlineKeyboar
           callbackButton("🗑 Сброс всего MVP", { a: "adm_mvp_reset", s: "all" }),
         ],
         [callbackButton("ℹ️ Инструкция", { a: "help" })],
+        [callbackButton("📬 Контакты", { a: "contacts" })],
       ],
     },
   };

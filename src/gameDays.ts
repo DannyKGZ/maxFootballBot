@@ -1,5 +1,6 @@
 import { config } from "./config";
 import { GameSlot, getGameSlots, getGameTime, loadSchedule } from "./settingsStore";
+import { isGameCancelled } from "./gameCancellations";
 
 /**
  * День игры считается от расписания публикации: игра — на следующий день после
@@ -91,6 +92,43 @@ export function nextPublicationDate(chatId: number, from: Date = new Date()): Da
     d.setDate(d.getDate() + add);
     d.setHours(weekly.hour, weekly.minute, weekly.second, 0);
     if (weekly.days.includes(d.getDay()) && d.getTime() > from.getTime()) return d;
+  }
+  return null;
+}
+
+export function nextPlayableGameDate(chatId: number, from: Date = new Date()): Date {
+  let game = computeNextGameDate(chatId, from);
+  while (isGameCancelled(chatId, game.toISOString())) game = computeNextGameDate(chatId, game);
+  return game;
+}
+
+export function gameAtPublication(chatId: number, publication: Date, slot?: GameSlot): Date {
+  if (slot) return nextWeekly(publication, slot.game, slot.time);
+  if (!parseWeeklyCron(effectiveScheduleCron(chatId))) return computeNextGameDate(chatId, publication);
+  const [hour, minute] = getGameTime(chatId).split(":").map(Number);
+  const game = new Date(publication);
+  game.setDate(game.getDate() + 1);
+  game.setHours(hour, minute, 0, 0);
+  return game;
+}
+
+export function nextPlayablePublication(chatId: number, from: Date = new Date()): { publication: Date; game: Date } | null {
+  const slots = getGameSlots(chatId);
+  if (slots) {
+    const upcoming = slots.map((slot) => {
+      let publication = nextWeekly(from, slot.pub, slot.pubTime);
+      let game = gameAtPublication(chatId, publication, slot);
+      while (isGameCancelled(chatId, game.toISOString())) {
+        publication = nextWeekly(publication, slot.pub, slot.pubTime);
+        game = gameAtPublication(chatId, publication, slot);
+      }
+      return { publication, game };
+    });
+    return upcoming.reduce((a, b) => b.publication < a.publication ? b : a);
+  }
+  for (let publication = nextPublicationDate(chatId, from); publication; publication = nextPublicationDate(chatId, publication)) {
+    const game = gameAtPublication(chatId, publication);
+    if (!isGameCancelled(chatId, game.toISOString())) return { publication, game };
   }
   return null;
 }

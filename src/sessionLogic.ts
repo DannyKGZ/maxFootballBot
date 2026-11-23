@@ -1,7 +1,8 @@
 import { dateShort, timeHM } from "./format";
 import { RoleHolder, RoleKind, getMaxPlayers, getRole, isRoleHolderEntry } from "./settingsStore";
 import { config } from "./config";
-import { computeNextGameDate, isSignupOpen } from "./gameDays";
+import { isSignupOpen, nextPlayableGameDate } from "./gameDays";
+import { isGameCancelled } from "./gameCancellations";
 import { getNickname, setNickname } from "./settingsStore";
 import * as api from "./maxApi";
 import {
@@ -98,7 +99,7 @@ export async function applyRoleChange(chatId: number, kind: RoleKind, previous: 
 }
 
 /** Дата игры — от расписания (см. gameDays.ts): на следующий день после публикации. */
-export { computeNextGameDate };
+export { computeNextGameDate } from "./gameDays";
 
 let idSeq = 0;
 function newPlayerId(): string {
@@ -227,20 +228,26 @@ async function pushRosterUpdate(session: FootballSession): Promise<void> {
  * есть, закрывается («открыта новая») и уходит в архив — по ней
  * ещё можно провести голосование за MVP.
  */
-export async function publishNewSession(chatId: number): Promise<FootballSession> {
+export async function publishNewSession(chatId: number, game = nextPlayableGameDate(chatId)): Promise<void> {
+  const date = game.toISOString();
+  if (isGameCancelled(chatId, date)) return;
   const previous = getSession(chatId);
   if (previous) await closeAndArchive(previous, true);
+  if (isGameCancelled(chatId, date)) return;
 
   const session: FootballSession = {
     chatId,
     messageId: null,
     players: [],
-    date: computeNextGameDate(chatId).toISOString(),
+    date,
     createdAt: Date.now(),
   };
   seedRolePlayers(session);
   await pushRosterUpdate(session);
-  return session;
+  if (isGameCancelled(chatId, date) && session.messageId) {
+    await api.editMessage(chatId, session.messageId, { text: `🚫 Игра ${dateShort(game)} в ${timeHM(game)} отменена.`, attachments: [] })
+      .catch((err) => console.warn("[sessionLogic] не удалось обновить отменённую запись:", err));
+  }
 }
 
 /** Помечает старое сообщение со списком как закрытое (best-effort, не критично при ошибке). */

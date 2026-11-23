@@ -14,6 +14,8 @@ import { RECEIPTS_RE, SETTINGS_RE, handleSettingsAction, isSettingsAction, recei
 import * as draft from "./draftLogic";
 import { DESCRIPTION_RE, handleDescription } from "./descriptionLogic";
 import { GAMES_RE, gamesCommand } from "./gameSlotsLogic";
+import { CANCEL_GAME_RE, cancelGameCommand } from "./gameCancelLogic";
+import { CONTACTS_RE, sendDeveloperContacts } from "./developerContacts";
 import {
   DEBTORS_RE,
   LIMIT_RE,
@@ -92,6 +94,8 @@ const TEXT_COMMANDS: TextCommand[] = [
   { re: rosterEdit.RENAME_RE, run: (c, m) => rosterEdit.renameCommand(c.group, c.userId, m[2], m[3]) },
   { re: DESCRIPTION_RE, run: (c, m) => handleDescription(c.group, c.userId, m[2]) },
   { re: GAMES_RE, run: (c, m) => gamesCommand(c.group, c.userId, m[2]) },
+  { re: CANCEL_GAME_RE, run: (c, m) => cancelGameCommand(c.group, c.reply, c.userId, m[1]) },
+  { re: CONTACTS_RE, run: (c) => sendDeveloperContacts(c.reply) },
   { re: roles.LEGEND_RE, run: (c, m) => roles.roleCommand(c.group, c.reply, c.user, "legend", m[2]) },
   { re: roles.MANISKA_RE, run: (c, m) => roles.roleCommand(c.group, c.reply, c.user, "maniska", m[2]) },
   { re: DEBTORS_RE, where: "group", run: (c, m) => debtorsCommand(c.group, c.userId, m[2]) },
@@ -164,9 +168,13 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
   const text = (message.body?.text || "").trim();
   const dm = message.recipient?.chat_type === "dialog";
 
+  if (dm && chatId && CONTACTS_RE.test(text)) {
+    await sendDeveloperContacts(chatId);
+    return;
+  }
   // Личка — только для участников чатов бота (dmTarget.ts).
   if (dm && chatId && userId && !(await dmAllowed(userId, message.sender?.name ?? message.sender?.first_name))) {
-    await api.sendMessageToChat(chatId, { text: DM_DENIED });
+    await sendDeveloperContacts(chatId, DM_DENIED);
     return;
   }
 
@@ -223,8 +231,8 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
 
 // Все команды бота — для подсказки, если команду написали с ошибкой.
 const KNOWN_COMMANDS = [
-  "статус", "голос", "имя", "mvp", "мвп", "history", "история", "help", "инструкция", "помощь", "составы",
-  "старт", "закрыть", "описание", "расписание", "игры", "оплата", "лимит", "напоминания", "должники", "оплатил", "легенда", "манишканосец", "манишки", "голосование", "итоги", "объединить",
+  "статус", "голос", "имя", "mvp", "мвп", "history", "история", "help", "инструкция", "помощь", "составы", "контакты",
+  "старт", "закрыть", "отменаигры", "описание", "расписание", "игры", "оплата", "лимит", "напоминания", "должники", "оплатил", "легенда", "манишканосец", "манишки", "голосование", "итоги", "объединить",
   "удалить", "переименовать", "заменить", "поменять", "дележка", "всем", "мвпСезонныйСброс", "мвпОбщийСброс",
 ];
 
@@ -267,7 +275,13 @@ async function handleMessageCallback(update: MaxUpdate): Promise<void> {
     return;
   }
 
+  if (chatId && message?.recipient?.chat_type === "dialog" && action?.a === "contacts") {
+    await sendDeveloperContacts(chatId);
+    await api.answerCallback(chatId, callback.callback_id, { notification: "Контакты ниже" });
+    return;
+  }
   if (message?.recipient?.chat_type === "dialog" && !(await dmAllowed(pressedByUserId, callback.user.name ?? callback.user.first_name))) {
+    if (chatId) await sendDeveloperContacts(chatId, DM_DENIED);
     await api.answerCallback(chatId, callback.callback_id, { notification: DM_DENIED });
     return;
   }
@@ -468,7 +482,7 @@ export async function handleUpdate(update: MaxUpdate): Promise<void> {
     const started = update as { chat_id?: number; user?: { user_id: number; name?: string } };
     if (started.chat_id && started.user) {
       if (await dmAllowed(started.user.user_id, started.user.name)) await adminPanel.sendPanel(started.chat_id, started.user.user_id);
-      else await api.sendMessageToChat(started.chat_id, { text: DM_DENIED });
+      else await sendDeveloperContacts(started.chat_id, DM_DENIED);
     }
   } else if (update.update_type === "message_created") {
     await handleMessageCreated(update);

@@ -1,7 +1,7 @@
 import { WEEKDAYS_SHORT, dateShort, timeHM } from "./format";
 import { NOT_ADMIN } from "./format";
 import { config } from "./config";
-import { computeNextGameDate, nextPublicationDate } from "./gameDays";
+import { nextPlayablePublication } from "./gameDays";
 import { applyChatSchedule } from "./scheduler";
 import { currentScheduleText, slotsText } from "./scheduleLogic";
 import { isChatAdmin } from "./sessionLogic";
@@ -78,10 +78,10 @@ export async function gamesCommand(groupChatId: number, userId: number, arg?: st
   if (typeof slots === "string") return `${slots}\n\n${HELP}`;
   setGameSlots(groupChatId, slots);
   applyChatSchedule(groupChatId);
-  const next = nextPublicationDate(groupChatId)!;
+  const next = nextPlayablePublication(groupChatId)!;
   return [
     `✅ Игры чата: ${slotsText(slots)} (${config.timezone}).`,
-    `Ближайшая запись откроется ${fmt(next)} — на игру ${fmt(computeNextGameDate(groupChatId, next))}.`,
+    `Ближайшая запись откроется ${fmt(next.publication)} — на игру ${fmt(next.game)}.`,
     "Текущую запись это не меняет. /игры сброс — вернуть обычное расписание.",
   ].join("\n");
 }

@@ -2,8 +2,9 @@ import cron, { ScheduledTask } from "node-cron";
 import { config, isManagedChat } from "./config";
 import { closeSignupIfStarted, publishNewSession } from "./sessionLogic";
 import { runNotifications } from "./notifications";
-import { getChatOptions, loadSchedule } from "./settingsStore";
-import { slotCrons } from "./gameDays";
+import { getChatOptions, getGameSlots, loadSchedule } from "./settingsStore";
+import { gameAtPublication, slotCrons } from "./gameDays";
+import { isGameCancelled } from "./gameCancellations";
 import { rolloverIfDue } from "./seasonLogic";
 import { getAllSessions, getAllVoteSessions, syncMatchHistory } from "./store";
 import { pruneMatchHistory } from "./matchHistory";
@@ -19,17 +20,23 @@ const tasks = new Map<number, ScheduledTask[]>();
  */
 export function applySchedule(chatId: number, expression: string | string[]): void {
   const expressions = Array.isArray(expression) ? expression : [expression];
+  const slots = Array.isArray(expression) ? getGameSlots(chatId) : null;
   for (const e of expressions) if (!cron.validate(e)) throw new Error(`Некорректное cron-выражение: ${e}`);
   for (const t of tasks.get(chatId) ?? []) t.stop();
   tasks.set(
     chatId,
-    expressions.map((e) =>
+    expressions.map((e, index) =>
       cron.schedule(
         e,
         async () => {
           try {
+            const game = gameAtPublication(chatId, new Date(), slots?.[index]);
+            if (isGameCancelled(chatId, game.toISOString())) {
+              console.log(`[scheduler] пропускаю отменённую игру ${game.toISOString()} в чате ${chatId}`);
+              return;
+            }
             console.log(`[scheduler] публикую новую запись в чат ${chatId}`);
-            await publishNewSession(chatId);
+            await publishNewSession(chatId, game);
           } catch (err) {
             console.error(`[scheduler] ошибка публикации записи в чат ${chatId}:`, err);
           }

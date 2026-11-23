@@ -2,6 +2,7 @@ import { db } from "./db";
 import { config } from "./config";
 import { FootballSession, PendingAction, VoteSession } from "./types";
 import { matchExpiresAt, rememberPlayedMatch } from "./matchHistory";
+import { isGameCancelled } from "./gameCancellations";
 
 // Состояние бота по чатам. Источник правды — SQLite (см. db.ts); в памяти —
 // кэш тех же объектов: обработчики меняют объект и потом вызывают set*, а
@@ -31,6 +32,7 @@ export function getAllSessions(): FootballSession[] {
 }
 
 export function setSession(session: FootballSession): void {
+  if (isGameCancelled(session.chatId, session.date)) return;
   db().transaction(() => {
     db().prepare("INSERT OR REPLACE INTO sessions (chat_id, data) VALUES (?, ?)").run(session.chatId, JSON.stringify(session));
     rememberPlayedMatch(session);
@@ -52,6 +54,7 @@ export function getAllArchivedSessions(): FootballSession[] {
 }
 
 export function setArchivedSession(session: FootballSession): void {
+  if (isGameCancelled(session.chatId, session.date)) return;
   db().transaction(() => {
     db().prepare("INSERT OR REPLACE INTO archived_sessions (chat_id, data) VALUES (?, ?)").run(session.chatId, JSON.stringify(session));
     rememberPlayedMatch(session);
@@ -110,8 +113,36 @@ export function getAllVoteSessions(): VoteSession[] {
 }
 
 export function setVoteSession(vote: VoteSession): void {
+  if (isGameCancelled(vote.chatId, vote.gameDate)) return;
   votes.set(vote.chatId, vote);
   db().prepare("INSERT OR REPLACE INTO votes (chat_id, data) VALUES (?, ?)").run(vote.chatId, JSON.stringify(vote));
+}
+
+/** Отмена и снятие записей этой игры вступают в силу вместе, до обращений к MAX. */
+export function cancelStoredGame(chatId: number, gameDate: string): { sessions: FootballSession[]; vote?: VoteSession } | undefined {
+  const current = sessions.get(chatId);
+  const previous = archived.get(chatId);
+  const vote = votes.get(chatId);
+  const cancelCurrent = current?.date === gameDate;
+  const cancelPrevious = previous?.date === gameDate;
+  const cancelVote = vote?.gameDate === gameDate;
+  const d = db();
+  const changed = d.transaction(() => {
+    if (!d.prepare("INSERT OR IGNORE INTO game_cancellations (chat_id, game_date) VALUES (?, ?)").run(chatId, gameDate).changes) return false;
+    if (cancelCurrent) d.prepare("DELETE FROM sessions WHERE chat_id = ?").run(chatId);
+    if (cancelPrevious) d.prepare("DELETE FROM archived_sessions WHERE chat_id = ?").run(chatId);
+    if (cancelVote) d.prepare("DELETE FROM votes WHERE chat_id = ?").run(chatId);
+    d.prepare("DELETE FROM match_history WHERE chat_id = ? AND game_at = ?").run(chatId, Date.parse(gameDate));
+    return true;
+  })();
+  if (!changed) return undefined;
+  if (cancelCurrent) sessions.delete(chatId);
+  if (cancelPrevious) archived.delete(chatId);
+  if (cancelVote) votes.delete(chatId);
+  return {
+    sessions: [cancelCurrent ? current : undefined, cancelPrevious ? previous : undefined].filter((s): s is FootballSession => !!s),
+    vote: cancelVote ? vote : undefined,
+  };
 }
 
 export function deleteVoteSession(chatId: number): void {
@@ -183,15 +214,15 @@ export function loadSessionsFromDisk(): void {
   const rows = (table: string) => d.prepare(`SELECT data FROM ${table}`).all() as Array<{ data: string }>;
   for (const r of rows("sessions")) {
     const s = JSON.parse(r.data) as FootballSession;
-    sessions.set(s.chatId, s);
+    if (!isGameCancelled(s.chatId, s.date)) sessions.set(s.chatId, s);
   }
   for (const r of rows("archived_sessions")) {
     const s = JSON.parse(r.data) as FootballSession;
-    archived.set(s.chatId, s);
+    if (!isGameCancelled(s.chatId, s.date)) archived.set(s.chatId, s);
   }
   for (const r of rows("votes")) {
     const v = JSON.parse(r.data) as VoteSession;
-    votes.set(v.chatId, v);
+    if (!isGameCancelled(v.chatId, v.gameDate)) votes.set(v.chatId, v);
   }
   for (const r of rows("pending_actions")) {
     const p = JSON.parse(r.data) as PendingAction;

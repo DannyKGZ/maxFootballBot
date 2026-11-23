@@ -1,5 +1,6 @@
 import { dateShort } from "./format";
 import { db } from "./db";
+import { isGameCancelled } from "./gameCancellations";
 import * as api from "./maxApi";
 import { escapeHtml, mention, paymentDetailsLine, paymentHeader } from "./messageFormatter";
 import { getChatOptions, getPayment } from "./settingsStore";
@@ -111,12 +112,17 @@ export function setLedgerMessage(chatId: number, gameDate: string, mid: string):
 
 /** Перерисовать сообщение «💰 Оплата» этой игры (после оплаты/отметки админом). */
 export async function refreshLedgerMessage(chatId: number, gameDate: string): Promise<void> {
-  const row = db().prepare("SELECT value FROM meta WHERE key = ?").get(msgKey(chatId, gameDate)) as { value: string } | undefined;
-  if (!row) return;
-  const { mid } = JSON.parse(row.value) as { mid: string };
+  if (isGameCancelled(chatId, gameDate)) return;
+  const mid = getLedgerMessageId(chatId, gameDate);
+  if (!mid) return;
   await api
     .editMessage(chatId, mid, { text: buildLedgerText(chatId, gameDate), format: "html" })
     .catch((err) => console.warn("[payments] не удалось обновить список оплаты:", err instanceof Error ? err.message : err));
+}
+
+export function getLedgerMessageId(chatId: number, gameDate: string): string | undefined {
+  const row = db().prepare("SELECT value FROM meta WHERE key = ?").get(msgKey(chatId, gameDate)) as { value: string } | undefined;
+  return row ? (JSON.parse(row.value) as { mid: string }).mid : undefined;
 }
 
 // ---- /должники и /оплатил ----
@@ -142,7 +148,9 @@ export function parseMonth(arg: string | undefined, now = new Date()): { from: D
 /** Должники: кто не оплатил (в т.ч. чек на проверке или не PDF), по дате игры. */
 export function debtors(chatId: number, period: ReturnType<typeof parseMonth>): PaymentRow[] {
   const rows = db()
-    .prepare("SELECT * FROM payments WHERE chat_id = ? AND status NOT IN ('paid', 'manual') ORDER BY game_date, id")
+    .prepare(`SELECT p.* FROM payments p LEFT JOIN game_cancellations c
+       ON c.chat_id = p.chat_id AND c.game_date = p.game_date
+       WHERE p.chat_id = ? AND c.chat_id IS NULL AND p.status NOT IN ('paid', 'manual') ORDER BY p.game_date, p.id`)
     .all(chatId) as PaymentRow[];
   if (!period || period === "all") return rows;
   return rows.filter((r) => {

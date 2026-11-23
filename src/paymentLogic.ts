@@ -1,6 +1,7 @@
 import * as api from "./maxApi";
 import { NOT_ADMIN } from "./format";
-import { debtorLine, debtors, getRow, parseMonth, receiptsEnabled, ensureLedger, buildLedgerText, refreshLedgerMessage, shortDate, updateRow } from "./paymentLedger";
+import { debtorLine, debtors, getRow, parseMonth, receiptsEnabled, ensureLedger, buildLedgerText, refreshLedgerMessage, setLedgerMessage, shortDate, updateRow } from "./paymentLedger";
+import { isGameCancelled } from "./gameCancellations";
 import { applyMaxPlayers, isChatAdmin } from "./sessionLogic";
 import { getChatOptions, getMaxPlayers, getPayment, hasOwnPayment, setChatOptions, setMaxPlayers, setPayment } from "./settingsStore";
 import { getSession } from "./store";
@@ -139,6 +140,7 @@ export async function paidCommand(groupChatId: number, userId: number, arg?: str
   for (const n of nums) {
     const row = ids[n - 1] !== undefined ? getRow(ids[n - 1]) : undefined;
     if (!row || row.chat_id !== groupChatId) return `Нет номера ${n} в списке — посмотрите /должники.`;
+    if (isGameCancelled(groupChatId, row.game_date)) return `Игра для оплаты №${n} отменена. Обновите /должники.`;
     if (row.status === "paid" || row.status === "manual") {
       done.push(`${row.payer_name} — уже отмечен`);
       continue;
@@ -194,9 +196,15 @@ export async function paymentListCommand(groupChatId: number, userId: number): P
   
   // Отправляем сообщение со списком должников
   const text = buildLedgerText(groupChatId, s.date);
-  await api.sendMessageToChat(groupChatId, { 
+  const sent = await api.sendMessageToChat(groupChatId, {
     text, 
     format: "html",
     notify: false 
   });
+  if (isGameCancelled(groupChatId, s.date)) {
+    await api.editMessage(groupChatId, sent.message.body.mid, { text: "🚫 Игра отменена.", attachments: [] })
+      .catch((err) => console.warn("[payments] не удалось закрыть список отменённой игры:", err));
+  } else {
+    setLedgerMessage(groupChatId, s.date, sent.message.body.mid);
+  }
 }

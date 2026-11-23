@@ -1,5 +1,6 @@
 import { createHash } from "crypto";
 import { config } from "./config";
+import { isGameCancelled } from "./gameCancellations";
 import { db } from "./db";
 import * as api from "./maxApi";
 import {
@@ -37,7 +38,7 @@ function openRowFor(userId: number): PaymentRow | undefined {
   const rows = db()
     .prepare("SELECT * FROM payments WHERE payer_id = ? AND status NOT IN ('paid', 'manual') ORDER BY game_date DESC, id DESC")
     .all(userId) as PaymentRow[];
-  return rows.find((r) => config.chatIds.includes(r.chat_id) && receiptsEnabled(r.chat_id));
+  return rows.find((r) => config.chatIds.includes(r.chat_id) && receiptsEnabled(r.chat_id) && !isGameCancelled(r.chat_id, r.game_date));
 }
 
 async function pdfText(bytes: Uint8Array): Promise<string> {
@@ -73,7 +74,10 @@ export function recipientMatches(text: string, expected: { phone: string; recipi
 /** Неоплаченная строка этого человека в конкретном чате (самая свежая игра). */
 function openRowIn(chatId: number, userId: number): PaymentRow | undefined {
   return db()
-    .prepare("SELECT * FROM payments WHERE chat_id = ? AND payer_id = ? AND status NOT IN ('paid', 'manual') ORDER BY game_date DESC LIMIT 1")
+    .prepare(`SELECT p.* FROM payments p LEFT JOIN game_cancellations c
+       ON c.chat_id = p.chat_id AND c.game_date = p.game_date
+       WHERE p.chat_id = ? AND p.payer_id = ? AND c.chat_id IS NULL AND p.status NOT IN ('paid', 'manual')
+       ORDER BY p.game_date DESC LIMIT 1`)
     .get(chatId, userId) as PaymentRow | undefined;
 }
 
@@ -175,7 +179,7 @@ export async function handleReceipt(chatId: number, user: MaxUser, attachments: 
   const file = pdf ?? files[0];
   const reason = db().transaction(() => {
     const current = getRow(row.id);
-    if (!current || isSettled(current)) return undefined;
+    if (!current || isSettled(current) || isGameCancelled(current.chat_id, current.game_date)) return undefined;
     let note = check.reason;
     if (check.hash && !db().prepare("INSERT OR IGNORE INTO receipts (hash, chat_id, payer_id, at) VALUES (?, ?, ?, ?)")
       .run(check.hash, row.chat_id, user.user_id, Date.now()).changes) note = "этот чек уже присылали";

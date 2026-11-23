@@ -1,6 +1,7 @@
 import { db } from "./db";
 import { dateFull, timeHM } from "./format";
 import { packBlocks } from "./messageParts";
+import { isGameCancelled } from "./gameCancellations";
 import type { FootballSession, VoteSession } from "./types";
 
 export const HISTORY_RE = /^\/(?:история|history)(?:\s+([\s\S]+))?$/i;
@@ -31,11 +32,12 @@ function saveRoster(chatId: number, gameAt: number, roster: Roster, refresh: boo
 
 export function rememberPlayedMatch(session: FootballSession, now = Date.now()): void {
   const gameAt = Date.parse(session.date);
-  if (gameAt > now) return;
+  if (gameAt > now || isGameCancelled(session.chatId, session.date)) return;
   saveRoster(session.chatId, gameAt, session.players.map(({ displayName, isReserve }) => ({ displayName, isReserve })), true, now);
 }
 
 export function saveMatchMvp(vote: VoteSession, winners: string[], session?: FootballSession, now = Date.now()): void {
+  if (isGameCancelled(vote.chatId, vote.gameDate)) return;
   const gameAt = Date.parse(vote.gameDate);
   const roster = session?.players.map(({ displayName, isReserve }) => ({ displayName, isReserve }))
     ?? vote.candidates.map(({ displayName }) => ({ displayName, isReserve: false }));
