@@ -2,9 +2,9 @@ import * as api from "./maxApi";
 import { NOT_ADMIN } from "./format";
 import { canCollectPayment, debtorLine, debtors, getRow, parseMonth, receiptsEnabled, ensureLedger, buildLedgerText, refreshLedgerMessage, setLedgerMessage, shortDate, updateRow } from "./paymentLedger";
 import { isGameCancelled } from "./gameCancellations";
-import { hasEnoughPlayers } from "./gameAttendance";
+import { hasEnoughPlayers, MIN_GAME_PLAYERS, PLAYERS_PER_TEAM } from "./gameAttendance";
 import { applyMaxPlayers, isChatAdmin } from "./sessionLogic";
-import { getChatOptions, getMaxPlayers, getMinPlayers, getPayment, hasOwnPayment, setChatOptions, setMaxPlayers, setMinPlayers, setPayment } from "./settingsStore";
+import { getChatOptions, getMaxPlayers, getPayment, hasOwnPayment, setChatOptions, setMaxPlayers, setPayment } from "./settingsStore";
 import { getSession } from "./store";
 
 /**
@@ -73,16 +73,8 @@ export async function limitCommand(groupChatId: number, userId: number, arg?: st
 
 export const MIN_PLAYERS_RE = /^\/минимум(?:\s+([\s\S]+))?$/i;
 
-export async function minPlayersCommand(chatId: number, userId: number, arg?: string): Promise<string> {
-  if (!(await isChatAdmin(chatId, userId))) return NOT_ADMIN;
-  const text = arg?.trim();
-  if (text === "сброс") setMinPlayers(chatId, null);
-  else if (text) {
-    const n = Number(text);
-    if (!/^\d+$/.test(text) || n < 1 || n > 100) return "Укажите число от 1 до 100, например /минимум 10.";
-    setMinPlayers(chatId, n);
-  }
-  return `👥 Минимум игроков в основе для проведения игры: ${getMinPlayers(chatId)}.\nИзменить — /минимум 10. Вернуть значение по умолчанию — /минимум сброс.`;
+export function minPlayersText(chatId: number): string {
+  return `👥 Для игры нужно ${MIN_GAME_PLAYERS} игроков в основе — две команды по ${PLAYERS_PER_TEAM}. Мест в основе этого чата: ${getMaxPlayers(chatId)}.`;
 }
 
 /**
@@ -202,7 +194,7 @@ export async function paymentListCommand(groupChatId: number, userId: number): P
     return;
   }
   if (!hasEnoughPlayers(s)) {
-    await api.sendMessageToChat(groupChatId, { text: `Оплата откроется, когда в основе будет минимум ${getMinPlayers(groupChatId)} игроков.` });
+    await api.sendMessageToChat(groupChatId, { text: `Оплата откроется, когда в основе будет минимум ${MIN_GAME_PLAYERS} игроков.` });
     return;
   }
   

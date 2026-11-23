@@ -9,6 +9,11 @@ export const HISTORY_RE = /^\/(?:история|history)(?:\s+([\s\S]+))?$/i;
 const PAGE_SIZE = 5;
 
 type Roster = Array<{ displayName: string; isReserve: boolean }>;
+export type CancellationReason = "admin" | "not_enough_players";
+
+function matchRoster(session: FootballSession): Roster {
+  return session.players.map(({ displayName, isReserve }) => ({ displayName, isReserve }));
+}
 
 export function matchExpiresAt(gameAt: number): number {
   const expiry = new Date(gameAt);
@@ -34,14 +39,26 @@ function saveRoster(chatId: number, gameAt: number, roster: Roster, refresh: boo
 export function rememberPlayedMatch(session: FootballSession, now = Date.now()): void {
   const gameAt = Date.parse(session.date);
   if (gameAt > now || !hasEnoughPlayers(session) || isGameCancelled(session.chatId, session.date)) return;
-  saveRoster(session.chatId, gameAt, session.players.map(({ displayName, isReserve }) => ({ displayName, isReserve })), true, now);
+  saveRoster(session.chatId, gameAt, matchRoster(session), true, now);
+}
+
+export function rememberCancelledMatch(chatId: number, gameDate: string, reason: CancellationReason, session?: FootballSession): void {
+  const gameAt = Date.parse(gameDate);
+  const expiresAt = matchExpiresAt(gameAt);
+  if (!Number.isFinite(gameAt) || expiresAt <= Date.now()) return;
+  const roster = session ? matchRoster(session) : [];
+  db().prepare(
+    `INSERT INTO match_history (chat_id, game_at, expires_at, roster, cancellation_reason)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT (chat_id, game_at) DO UPDATE SET
+       roster = excluded.roster, cancellation_reason = excluded.cancellation_reason, mvp = NULL`,
+  ).run(chatId, gameAt, expiresAt, JSON.stringify(roster), reason);
 }
 
 export function saveMatchMvp(vote: VoteSession, winners: string[], session?: FootballSession, now = Date.now()): void {
   if (isGameCancelled(vote.chatId, vote.gameDate)) return;
   const gameAt = Date.parse(vote.gameDate);
-  const roster = session?.players.map(({ displayName, isReserve }) => ({ displayName, isReserve }))
-    ?? vote.candidates.map(({ displayName }) => ({ displayName, isReserve: false }));
+  const roster = session ? matchRoster(session) : vote.candidates.map(({ displayName }) => ({ displayName, isReserve: false }));
   saveRoster(vote.chatId, gameAt, roster, false, now);
   db().prepare("UPDATE match_history SET mvp = ? WHERE chat_id = ? AND game_at = ? AND expires_at > ?")
     .run(JSON.stringify(winners), vote.chatId, gameAt, now);
@@ -60,14 +77,19 @@ export function buildMatchHistory(chatId: number, pageArg?: string): string[] {
     return ["Номер страницы: /история 2"];
   }
   const now = Date.now();
-  const filter = "FROM match_history WHERE chat_id = ? AND game_at <= ? AND expires_at > ?";
+  const filter = "FROM match_history WHERE chat_id = ? AND (game_at <= ? OR cancellation_reason IS NOT NULL) AND expires_at > ?";
   const { count } = db().prepare(`SELECT count(*) AS count ${filter}`).get(chatId, now, now) as { count: number };
   const pages = Math.ceil(count / PAGE_SIZE);
   if (pages === 0 || page > pages) {
     return [pages === 0 ? "За последние полгода матчей в истории нет." : `В истории ${pages} стр. Начните с /история.`];
   }
-  const rows = db().prepare(`SELECT game_at, roster, mvp ${filter} ORDER BY game_at DESC LIMIT ? OFFSET ?`)
-    .all(chatId, now, now, PAGE_SIZE, (page - 1) * PAGE_SIZE) as Array<{ game_at: number; roster: string; mvp: string | null }>;
+  const rows = db().prepare(`SELECT game_at, roster, mvp, cancellation_reason ${filter} ORDER BY game_at DESC LIMIT ? OFFSET ?`)
+    .all(chatId, now, now, PAGE_SIZE, (page - 1) * PAGE_SIZE) as Array<{
+      game_at: number;
+      roster: string;
+      mvp: string | null;
+      cancellation_reason: CancellationReason | null;
+    }>;
   const blocks = [[`📚 История матчей · ${page}/${pages}`]];
   for (const row of rows) {
     const date = new Date(row.game_at);
@@ -79,11 +101,15 @@ export function buildMatchHistory(chatId: number, pageArg?: string): string[] {
     });
     const main = roster.filter((player) => !player.isReserve).map((player) => player.displayName);
     const reserve = roster.filter((player) => player.isReserve).map((player) => player.displayName);
+    const cancellation = row.cancellation_reason === "not_enough_players"
+      ? `🚫 Игра отменена. Состав не собрался (в основе ${main.length}).`
+      : "🚫 Игра отменена администратором.";
     blocks.push([
       `⚽ ${dateFull(date)}, ${timeHM(date)}`,
+      ...(row.cancellation_reason ? [cancellation] : []),
       "",
       `👥 Состав (${main.length})`,
-      ...listPlayers(main),
+      ...(main.length ? listPlayers(main) : ["— Никто не записался в основу"]),
       ...(reserve.length ? ["", `🪑 Резерв (${reserve.length})`, ...listPlayers(reserve)] : []),
     ]);
   }

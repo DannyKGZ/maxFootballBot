@@ -9,6 +9,14 @@ const dateLabel = date => new Intl.DateTimeFormat("ru-RU", {
 module.exports = {
   name: "Разовая отмена матча, права, долги, перезапуск и пропуск публикации",
   env: { CHAT_IDS: "-1,-2", GAME_DAY_OF_WEEK: "3", GAME_TIME: "21:30", TIMEZONE: "Europe/Moscow" },
+  preload(dir) {
+    const db = new Database(path.join(dir, "bot.db"));
+    db.exec(`CREATE TABLE match_history (
+      chat_id INTEGER NOT NULL, game_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
+      roster TEXT NOT NULL, mvp TEXT, PRIMARY KEY (chat_id, game_at)
+    )`);
+    db.close();
+  },
   async run(t) {
     const session = chatId => {
       const row = t.query("SELECT data FROM sessions WHERE chat_id = ?", chatId)[0];
@@ -48,6 +56,11 @@ module.exports = {
       "отменённая игра скрыта из долгов, запись учёта сохранена");
     await t.say(1, command);
     t.ok(!!t.find(/уже отменена/), "повтор команды не меняет другие игры");
+    await t.say(2, "/история");
+    const history = t.find(/^📚 История матчей/);
+    t.ok(history?.text.includes(dateLabel(date)) && history.text.includes("Игра отменена администратором")
+      && history.text.includes("1. Ruslan") && !history.text.includes("🏆 MVP"),
+    "ручная отмена с именами сразу видна в истории, в том числе после миграции базы");
 
     await t.say(1, "/старт");
     const next = session(-1)?.date;

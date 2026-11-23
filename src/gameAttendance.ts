@@ -1,6 +1,8 @@
 import { db } from "./db";
-import { getMinPlayers } from "./settingsStore";
 import type { FootballSession } from "./types";
+
+export const PLAYERS_PER_TEAM = 5;
+export const MIN_GAME_PLAYERS = 2 * PLAYERS_PER_TEAM;
 
 let from = Infinity;
 
@@ -13,7 +15,11 @@ export function initGameAttendance(now = Date.now()): void {
 }
 
 export function needsAttendanceCheck(session: FootballSession): boolean {
-  return !session.attendanceConfirmed && Date.parse(session.date) >= from;
+  return !session.attendanceConfirmed && usesTeamFormat(session);
+}
+
+export function usesTeamFormat(session: FootballSession): boolean {
+  return Date.parse(session.date) >= from;
 }
 
 export function mainPlayerCount(session: FootballSession): number {
@@ -21,5 +27,9 @@ export function mainPlayerCount(session: FootballSession): number {
 }
 
 export function hasEnoughPlayers(session: FootballSession): boolean {
-  return !needsAttendanceCheck(session) || mainPlayerCount(session) >= getMinPlayers(session.chatId);
+  return !needsAttendanceCheck(session) || mainPlayerCount(session) >= MIN_GAME_PLAYERS;
+}
+
+export function completeTeams(session: FootballSession): number {
+  return Math.min(3, Math.floor(mainPlayerCount(session) / PLAYERS_PER_TEAM));
 }

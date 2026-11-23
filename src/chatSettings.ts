@@ -4,7 +4,8 @@ import { InlineKeyboardAttachment, KeyboardButton } from "./maxApi";
 import { chatTitle } from "./dmTarget";
 import { toggleRole } from "./rolesLogic";
 import { isChatAdmin } from "./sessionLogic";
-import { ChatOptions, getChatOptions, getMaxPlayers, getMinPlayers, getPayment, hasOwnPayment, setChatOptions } from "./settingsStore";
+import { ChatOptions, getChatOptions, getMaxPlayers, getPayment, hasOwnPayment, setChatOptions } from "./settingsStore";
+import { MIN_GAME_PLAYERS } from "./gameAttendance";
 import { ButtonAction } from "./types";
 
 /**
@@ -53,9 +54,9 @@ function settingsText(chatId: number, title: string): string {
     `⏰ Напоминание о составе: ${o.reminderBefore ? `за ${o.reminderBefore} ч до игры` : "нет"}`,
     `🗳 Голосование MVP открывается: ${o.voteAutoStart ? `через ${minutes(o.voteAutoStart)} после начала игры` : "вручную"}`,
     `⏱ Голосование закрывается: ${o.voteAutoClose ? `через ${o.voteAutoClose} ч` : "когда проголосуют все или вручную"}`,
-    `👥 Основа: ${getMaxPlayers(chatId)} мест. Минимум для игры: ${getMinPlayers(chatId)} игроков.`,
+    `👥 Основа: ${getMaxPlayers(chatId)} мест. Минимум для игры: ${MIN_GAME_PLAYERS} игроков.`,
     "",
-    "Кнопки ниже включают и выключают. Команды: /оплата 350 Банк телефон Имя, /напоминания 0 2, /чеки +7… Имя, /лимит 15, /минимум 10, /игры, /расписание.",
+    "Кнопки ниже включают и выключают. Команды: /оплата 350 Банк телефон Имя, /напоминания 0 2, /чеки +7… Имя, /лимит 15, /игры, /расписание.",
   ].join("\n");
 }
 

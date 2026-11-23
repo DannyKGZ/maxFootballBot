@@ -31,12 +31,13 @@ export interface FootballSession {
   appliedRosterEvents?: string[];
 }
 
-/** Дележка: админ выбирает двух капитанов, капитаны по очереди выбирают игроков основы. */
+/** Дележка: админ выбирает капитанов, капитаны по очереди выбирают игроков основы. */
 export interface Draft {
   stage: "captains" | "picking" | "done";
-  captains: string[]; // ключи игроков (playerKey), 0 — первая команда, 1 — вторая
-  picks: Array<{ k: string; team: 0 | 1 }>;
-  turn: 0 | 1;
+  captains: string[]; // ключи игроков (playerKey) в порядке команд
+  teamCount?: number; // у сохранённых ранее дележек две команды без лимита в пять
+  picks: Array<{ k: string; team: number }>;
+  turn: number;
   messageId: string | null;
 }
 

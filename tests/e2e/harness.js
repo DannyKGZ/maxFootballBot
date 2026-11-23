@@ -188,6 +188,13 @@ class Harness {
     this.mock = await startMock();
     this.botPort = await freePort();
     if (this.scenario.preload) this.scenario.preload(this.dataDir);
+    if (!this.scenario.teamFormat) {
+      // Старые сценарии с маленькими составами проверяют поведение матчей до перехода на 5×5.
+      const db = new Database(path.join(this.dataDir, "bot.db"));
+      db.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+      db.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES ('attendance_check_from', ?)").run(String(Number.MAX_SAFE_INTEGER));
+      db.close();
+    }
     await this.startBot();
   }
 
@@ -207,7 +214,6 @@ class Harness {
       MVP_FILE: path.join(this.dataDir, "mvp.json"),
       CRON_SCHEDULE: "0 0 1 1 *", // чтобы расписание не сработало посреди теста
       MAX_PLAYERS: "15",
-      MIN_PLAYERS: "1",
       REMINDER_HOURS_BEFORE: "0",
       PAYMENT_HOURS_BEFORE: "0",
       PAYMENT_HOURS_AFTER: "0",

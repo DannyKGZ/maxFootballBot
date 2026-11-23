@@ -5,6 +5,7 @@ import { isChatAdmin } from "./sessionLogic";
 import { cancelStoredGame, getArchivedSession, getSession } from "./store";
 import { getLedgerMessageId } from "./paymentLedger";
 import { db } from "./db";
+import type { CancellationReason } from "./matchHistory";
 
 export const CANCEL_GAME_RE = /^\/(?:отмена_?игры|отменить_?игру|cancel_game)(?:\s+([\s\S]+))?$/i;
 const USAGE = "Введите /отменаигры для ближайшей игры. Для другой даты доступен формат /отменаигры ДД.ММ.ГГГГ [ЧЧ:ММ].";
@@ -49,14 +50,14 @@ export async function cancelGameCommand(chatId: number, replyChatId: number, use
     return "По этой игре уже подведены итоги MVP.";
   }
   const notice = `🚫 Игра ${when} отменена. Остальные игры остаются по расписанию.`;
-  if (!await cancelAndNotify(chatId, game.toISOString(), notice, replyChatId !== chatId)) {
+  if (!await cancelAndNotify(chatId, game.toISOString(), "admin", notice, replyChatId !== chatId)) {
     return `Игра ${when} уже отменена.`;
   }
   return notice;
 }
 
-export async function cancelAndNotify(chatId: number, gameDate: string, notice: string, announce: boolean): Promise<boolean> {
-  const cancelled = cancelStoredGame(chatId, gameDate);
+export async function cancelAndNotify(chatId: number, gameDate: string, reason: CancellationReason, notice: string, announce: boolean): Promise<boolean> {
+  const cancelled = cancelStoredGame(chatId, gameDate, reason);
   if (!cancelled) return false;
 
   const messages = new Set([

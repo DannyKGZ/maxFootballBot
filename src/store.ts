@@ -1,7 +1,7 @@
 import { db } from "./db";
 import { config } from "./config";
 import { FootballSession, PendingAction, VoteSession } from "./types";
-import { matchExpiresAt, rememberPlayedMatch } from "./matchHistory";
+import { CancellationReason, matchExpiresAt, rememberCancelledMatch, rememberPlayedMatch } from "./matchHistory";
 import { isGameCancelled } from "./gameCancellations";
 
 // Состояние бота по чатам. Источник правды — SQLite (см. db.ts); в памяти —
@@ -123,20 +123,21 @@ export function setVoteSession(vote: VoteSession): void {
 }
 
 /** Отмена и снятие записей этой игры вступают в силу вместе, до обращений к MAX. */
-export function cancelStoredGame(chatId: number, gameDate: string): { sessions: FootballSession[]; vote?: VoteSession } | undefined {
+export function cancelStoredGame(chatId: number, gameDate: string, reason: CancellationReason): { sessions: FootballSession[]; vote?: VoteSession } | undefined {
   const current = sessions.get(chatId);
   const previous = archived.get(chatId);
   const vote = votes.get(chatId);
   const cancelCurrent = current?.date === gameDate;
   const cancelPrevious = previous?.date === gameDate;
   const cancelVote = vote?.gameDate === gameDate;
+  const session = cancelCurrent ? current : cancelPrevious ? previous : undefined;
   const d = db();
   const changed = d.transaction(() => {
     if (!d.prepare("INSERT OR IGNORE INTO game_cancellations (chat_id, game_date) VALUES (?, ?)").run(chatId, gameDate).changes) return false;
     if (cancelCurrent) d.prepare("DELETE FROM sessions WHERE chat_id = ?").run(chatId);
     if (cancelPrevious) d.prepare("DELETE FROM archived_sessions WHERE chat_id = ?").run(chatId);
     if (cancelVote) d.prepare("DELETE FROM votes WHERE chat_id = ?").run(chatId);
-    d.prepare("DELETE FROM match_history WHERE chat_id = ? AND game_at = ?").run(chatId, Date.parse(gameDate));
+    rememberCancelledMatch(chatId, gameDate, reason, session);
     return true;
   })();
   if (!changed) return undefined;

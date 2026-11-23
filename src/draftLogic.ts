@@ -7,26 +7,25 @@ import { getSession, setSession } from "./store";
 import { ButtonAction, Draft, FootballSession, Player } from "./types";
 import { escapeHtml, paymentDetailsLine, paymentHeader, paymentPayerLines } from "./messageFormatter";
 import { ensureLedger, receiptsEnabled } from "./paymentLedger";
-import { hasEnoughPlayers } from "./gameAttendance";
+import { completeTeams, hasEnoughPlayers, MIN_GAME_PLAYERS, PLAYERS_PER_TEAM, usesTeamFormat } from "./gameAttendance";
 
 /**
  * Дележка на команды:
- *  1. админ пишет /дележка — бот публикует основу кнопками, админ отмечает двух
- *     капитанов (или сразу: /дележка 2 5 — номера в списке);
- *  2. капитаны по очереди, по одному (⚪ ⚫ ⚪ ⚫ …), выбирают игроков основы кнопками
+ *  1. бот определяет число команд по пять, админ отмечает капитанов
+ *     (или вводит их номера: /дележка 2 5);
+ *  2. капитаны по очереди выбирают игроков основы кнопками
  *     под сообщением; нажать может сам капитан (тот, кто записывался под этим
  *     именем) или админ — если капитана записали «за друга»;
- *  3. когда игроки кончились — бот показывает составы; /составы — показать снова.
+ *  3. когда места заполнены — бот показывает составы и замены.
  * Резерв в дележке не участвует. /дележка сброс — отменить.
  */
 
 export const DRAFT_RE = /^\/(дележка|делёжка|draft)(?:\s+([\s\S]+))?$/i;
 export const TEAMS_RE = /^\/(составы|состав|команды|teams)$/i;
 
-const TEAM_ICON = ["⚪", "⚫"];
+const TEAM_ICON = ["⚪", "⚫", "🔵"];
 
-/** Очерёдность по одному: ⚪ ⚫ ⚪ ⚫ … — по номеру выбора (0, 1, 2, …) чья очередь. */
-export const turnForPick = (pickIndex: number): 0 | 1 => (pickIndex % 2 === 0 ? 0 : 1);
+const teamCount = (draft: Draft) => draft.teamCount ?? 2;
 
 const btn = (text: string, action: ButtonAction): KeyboardButton => ({ type: "callback", text, payload: JSON.stringify(action) });
 const kb = (rows: KeyboardButton[][]): InlineKeyboardAttachment => ({ type: "inline_keyboard", payload: { buttons: rows } });
@@ -40,6 +39,12 @@ function remaining(s: FootballSession, d: Draft): Player[] {
   return mainPlayers(s).filter((p) => !taken.has(playerKey(p)));
 }
 
+function picksLeft(s: FootballSession, d: Draft): number {
+  return d.teamCount
+    ? d.teamCount * (PLAYERS_PER_TEAM - 1) - d.picks.length
+    : remaining(s, d).length;
+}
+
 /**
  * Составы столбиком:
  *   ⚪ Команда 1, Кэп: Руслан
@@ -51,11 +56,17 @@ function remaining(s: FootballSession, d: Draft): Player[] {
  */
 function teamLines(s: FootballSession, d: Draft): string[] {
   const lines: string[] = [];
-  for (const t of [0, 1] as const) {
+  for (let t = 0; t < teamCount(d); t++) {
     const members = [d.captains[t], ...d.picks.filter((p) => p.team === t).map((p) => p.k)].filter((k) => byKey(s, k));
-    if (t === 1) lines.push("");
+    if (t > 0) lines.push("");
     lines.push(`${TEAM_ICON[t]} Команда ${t + 1}, Кэп: ${nameOf(s, d.captains[t])}`);
     members.forEach((k, i) => lines.push(`${i + 1}. ${nameOf(s, k)}`));
+  }
+  if (d.teamCount && d.stage === "done") {
+    const substitutes = remaining(s, d);
+    if (substitutes.length) {
+      lines.push("", "🔄 Замены", ...substitutes.map((player, index) => `${index + 1}. ${player.displayName}`));
+    }
   }
   return lines;
 }
@@ -76,7 +87,7 @@ function render(s: FootballSession): { text: string; format?: "html"; attachment
     return {
       text: [
         "⚽ Дележка на команды",
-        `Админ, выберите двух капитанов из основы${chosen.length ? ` (выбран: ${chosen.join(", ")})` : ""}.`,
+        `Админ, выберите ${teamCount(d)} капитанов из основы${chosen.length ? ` (выбраны: ${chosen.join(", ")})` : ""}.`,
       ].join("\n"),
       attachments: [kb([...options.map((p) => [btn(`👑 ${p.displayName}`, { a: "dr_cap", k: playerKey(p) })]), cancel])],
     };
@@ -138,8 +149,8 @@ async function show(s: FootballSession): Promise<void> {
 
 /** Капитаны выбраны — начинаем выбор; если выбирать некого, сразу готово. */
 function beginPicking(s: FootballSession, d: Draft): void {
-  d.stage = remaining(s, d).length ? "picking" : "done";
-  d.turn = turnForPick(d.picks.length);
+  d.stage = picksLeft(s, d) ? "picking" : "done";
+  d.turn = 0;
 }
 
 /** /дележка, /дележка 2 5, /дележка сброс → текст ответа (пусто — бот уже показал сообщение дележки). */
@@ -159,19 +170,24 @@ export async function draftCommand(chatId: number, userId: number, arg?: string)
   }
 
   const main = mainPlayers(s);
-  if (main.length < 4) return `Для дележки нужно хотя бы 4 игрока в основе, сейчас ${main.length}.`;
-  if (s.draft?.messageId) await api.deleteMessage(chatId, s.draft.messageId).catch(() => undefined);
+  const modern = usesTeamFormat(s);
+  const minimum = modern ? MIN_GAME_PLAYERS : 4;
+  if (main.length < minimum) return `Для дележки нужно ${minimum} игроков в основе, сейчас ${main.length}.`;
 
   const draft: Draft = { stage: "captains", captains: [], picks: [], turn: 0, messageId: null };
-  const nums = a.match(/^(\d+)\s+(\d+)$/);
-  if (nums) {
-    const [i, j] = [Number(nums[1]) - 1, Number(nums[2]) - 1];
-    if (i === j || !main[i] || !main[j]) return `Укажите два разных номера игроков основы (1–${main.length}), например: /дележка 2 5`;
-    draft.captains = [playerKey(main[i]), playerKey(main[j])];
+  if (modern) draft.teamCount = completeTeams(s);
+  if (a) {
+    const numbers = a.split(/\s+/);
+    const indices = numbers.map((number) => Number(number) - 1);
+    const count = teamCount(draft);
+    if (indices.length !== count || new Set(indices).size !== count ||
+        numbers.some((number) => !/^\d+$/.test(number)) || indices.some((index) => !main[index])) {
+      return `Укажите ${count} разных номера игроков основы (1–${main.length}), например /дележка ${count === 2 ? "2 5" : "2 5 8"}.`;
+    }
+    draft.captains = indices.map((index) => playerKey(main[index]));
     beginPicking(s, draft);
-  } else if (a) {
-    return "Пример: /дележка — выбрать капитанов кнопками, /дележка 2 5 — капитаны по номерам в списке, /дележка сброс — отменить.";
   }
+  if (s.draft?.messageId) await api.deleteMessage(chatId, s.draft.messageId).catch(() => undefined);
   s.draft = draft;
   await show(s);
   return "";
@@ -200,14 +216,22 @@ export async function handleDraftAction(chatId: number, userId: number, action: 
     return "Дележка отменена";
   }
 
+  if (d.teamCount && d.stage !== "done") {
+    const pool = new Set(mainPlayers(s).map(playerKey));
+    if (completeTeams(s) !== d.teamCount || [...d.captains, ...d.picks.map((pick) => pick.k)].some((key) => !pool.has(key))) {
+      return "Состав основы изменился. Админ может запустить /дележка заново.";
+    }
+  }
+
   if (action.a === "dr_cap") {
     if (d.stage !== "captains") return "Капитаны уже выбраны";
     if (!(await isChatAdmin(chatId, userId))) return "Капитанов назначает админ";
-    if (!byKey(s, action.k) || d.captains.includes(action.k)) return "Этого игрока нельзя выбрать";
+    if (!mainPlayers(s).some((player) => playerKey(player) === action.k) || d.captains.includes(action.k)) return "Этого игрока нельзя выбрать";
     d.captains.push(action.k);
-    if (d.captains.length === 2) beginPicking(s, d);
+    const ready = d.captains.length === teamCount(d);
+    if (ready) beginPicking(s, d);
     await show(s);
-    return d.captains.length === 2 ? "Капитаны назначены — первым выбирает ⚪" : "Выберите второго капитана";
+    return ready ? "Капитаны назначены — первым выбирает ⚪" : "Выберите следующего капитана";
   }
 
   if (action.a === "dr_pick") {
@@ -219,13 +243,12 @@ export async function handleDraftAction(chatId: number, userId: number, action: 
     }
     if (!remaining(s, d).some((p) => playerKey(p) === action.k)) return "Этот игрок уже выбран";
     d.picks.push({ k: action.k, team: d.turn });
-    d.turn = turnForPick(d.picks.length);
+    d.turn = d.picks.length % teamCount(d);
     const left = remaining(s, d);
-    if (left.length === 1) {
+    if (left.length === 1 && picksLeft(s, d) === 1) {
       d.picks.push({ k: playerKey(left[0]), team: d.turn });
-      d.turn = turnForPick(d.picks.length);
     }
-    if (left.length <= 1) {
+    if (picksLeft(s, d) === 0) {
       d.stage = "done";
       // Инициализируем payment ledger сразу при завершении дележки
       if (receiptsEnabled(chatId)) {

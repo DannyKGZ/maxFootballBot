@@ -15,9 +15,9 @@ let previous;
 
 module.exports = {
   name: "Минимум основы: отмена, оплата, история и MVP по чатам",
+  teamFormat: true,
   env: {
     CHAT_IDS: "-1,-2,-3,-4",
-    MIN_PLAYERS: "",
     PAYMENT_HOURS_BEFORE: "1",
     PAYMENT_AMOUNT: "350",
     PAYMENT_DETAILS: "Тестовые реквизиты",
@@ -28,25 +28,22 @@ module.exports = {
     kickoff = new Date(Date.now() + 22_000);
     previous = new Date(Date.now() - 86_400_000);
     const session = (chatId, date, players) => ({ chatId, date, players, createdAt: Date.now(), messageId: null });
-    const small = [player(2), player(3), player(4)];
-    const extra = Array.from({ length: 7 }, (_, i) => i + 5);
+    const main = Array.from({ length: 15 }, (_, i) => player(i + 2));
     fs.writeFileSync(path.join(dir, "sessions.json"), JSON.stringify([
-      session(-1, kickoff, [...small, ...extra.map((id) => player(id, true))]),
-      session(-2, kickoff, small),
-      session(-3, kickoff, [...small, ...extra.map((id) => player(id))]),
-      session(-4, previous, small),
+      session(-1, kickoff, [...main.slice(0, 9), player(50, true)]),
+      session(-2, kickoff, main.slice(0, 10)),
+      session(-3, kickoff, main),
+      session(-4, previous, main.slice(0, 3)),
     ]));
   },
   async run(t) {
-    await t.say(1, "/минимум");
-    t.ok(!!t.find(/для проведения игры: 10\b/), "по умолчанию нужно ровно 10 игроков основы");
-    await t.say(2, "/минимум 3");
-    t.ok(!!t.find(/Только для админов/), "менять порог может только администратор");
-    await t.say(1, "/минимум 3", { chat: -2 });
-    t.ok(!!t.find(/для проведения игры: 3\b/, -2), "порог другого чата можно снизить независимо");
+    await t.say(2, "/минимум");
+    t.ok(!!t.find(/Для игры нужно 10.*две команды по 5/), "нужны две полные команды по пять игроков основы");
+    await t.say(1, "/минимум 3");
+    t.ok(!!t.find(/Для игры нужно 10/), "старый аргумент команды не уменьшает размер двух команд");
     await t.say(1, "/голосование");
     t.ok(!!t.find(/когда в основе наберётся минимальный состав/) && !t.query("SELECT 1 FROM votes WHERE chat_id = -1").length,
-      "три игрока основы и семь резервных не запускают MVP вручную");
+      "девять игроков основы и один резервный не запускают MVP вручную");
     await t.say(1, "/чеки 89001112233 Получатель");
     await t.say(1, "/оплата_список");
     t.ok(!!t.find(/Оплата откроется.*минимум 10/) && !t.query("SELECT 1 FROM payments WHERE chat_id = -1").length,
@@ -62,22 +59,29 @@ module.exports = {
     t.ok(!t.find(/^💰 Оплата.*₽/) && !!t.find(/^💰 Оплата.*₽/, -2) && !!t.find(/^💰 Оплата.*₽/, -3),
       "напоминание об оплате идёт только чатам, где набрался состав");
 
-    await t.waitFor(() => !!t.find(/не состоялась.*3 из 10/) && !!t.find(/^🏆 Голосование/, -2) && !!t.find(/^🏆 Голосование/, -3), 30_000);
+    await t.waitFor(() => !!t.find(/не состоялась.*9 из 10/) && !!t.find(/^🏆 Голосование/, -2) && !!t.find(/^🏆 Голосование/, -3), 30_000);
     const cancellations = t.query("SELECT chat_id, game_date FROM game_cancellations");
     t.ok(cancellations.length === 1 && cancellations[0].chat_id === -1 && cancellations[0].game_date === kickoff.toISOString(),
       "автоматически отменён только матч с недобором");
-    t.ok(!t.query("SELECT 1 FROM votes WHERE chat_id = -1").length && !t.query("SELECT 1 FROM match_history WHERE chat_id = -1").length,
-      "после отмены нет MVP и строки в истории");
+    await t.say(2, "/история");
+    const cancelled = t.query("SELECT roster, mvp, expires_at, cancellation_reason FROM match_history WHERE chat_id = -1")[0];
+    const snapshot = JSON.parse(cancelled?.roster ?? "[]");
+    t.ok(!t.query("SELECT 1 FROM votes WHERE chat_id = -1").length && cancelled?.mvp === null && cancelled?.cancellation_reason === "not_enough_players"
+      && snapshot.length === 10 && snapshot.filter(player => !player.isReserve).length === 9,
+      "после отмены в истории сохранён полный список с резервом, без MVP");
+    const history = t.find(/^📚 История матчей/);
+    t.ok(history?.text.includes("Игра отменена. Состав не собрался (в основе 9)") && history.text.includes("1. Игрок 2")
+      && history.text.includes("🪑 Резерв (1)") && history.text.includes("1. Игрок 50"),
+      "в истории есть причина и имена столбиком");
     t.ok(t.query("SELECT status FROM payments WHERE chat_id = -1")[0]?.status === "unpaid",
       "старый учёт сохранён при отмене");
-    t.ok(t.query("SELECT chat_id FROM match_history ORDER BY chat_id").map((row) => row.chat_id).join(",") === "-4,-3,-2",
+    t.ok(t.query("SELECT chat_id FROM match_history WHERE cancellation_reason IS NULL ORDER BY chat_id").map((row) => row.chat_id).join(",") === "-4,-3,-2",
       "история сыгранных и прежних матчей сохраняется");
-    await t.say(1, "/минимум сброс", { chat: -2 });
+    t.ok(cancelled?.expires_at > kickoff.getTime() + 178 * 86_400_000 &&
+      cancelled?.expires_at < kickoff.getTime() + 185 * 86_400_000, "у отменённого матча срок хранения шесть календарных месяцев");
     await t.restartBot();
     await t.say(1, "/должники все");
-    t.ok(t.count(/не состоялась.*3 из 10/) === 1 && !!t.find(/Должников нет/),
+    t.ok(t.count(/не состоялась.*9 из 10/) === 1 && !!t.find(/Должников нет/),
       "отмена сохраняется после перезапуска и объявляется один раз");
-    t.ok(!!t.find(/^🏆 Голосование/, -2) && !!t.query("SELECT 1 FROM match_history WHERE chat_id = -2").length,
-      "после смены порога подтверждённая игра остаётся сыгранной");
   },
 };

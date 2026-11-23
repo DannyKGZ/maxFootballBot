@@ -7,6 +7,7 @@ import { getArchivedSession, getSession, getVoteSession } from "./store";
 import { FootballSession } from "./types";
 import { isSignupOpen, nextPlayablePublication } from "./gameDays";
 import { teamsText } from "./draftLogic";
+import { completeTeams, mainPlayerCount, MIN_GAME_PLAYERS, PLAYERS_PER_TEAM, usesTeamFormat } from "./gameAttendance";
 
 /**
  * /статус — для всех: актуальна ли запись, на какую игру, сколько мест
@@ -58,12 +59,23 @@ export function buildStatusText(chatId: number, now = Date.now()): string {
     const game = new Date(session.date);
     const left = game.getTime() - now;
     lines.push(`📋 Игра ${formatWhen(game)}`);
+    const open = isSignupOpen(session, now);
     lines.push(
-      isSignupOpen(session, now)
+      open
         ? `✅ Запись открыта, до игры ${formatDuration(left)}. Записаться: «+».`
         : `🔒 Запись закрыта: игра ${left > -3 * 3_600_000 ? "идёт" : "прошла"} (${formatDuration(left)} назад). Состав меняет админ.`,
     );
     lines.push(...rosterLines(session));
+    if (open && usesTeamFormat(session)) {
+      const main = mainPlayerCount(session);
+      if (main < MIN_GAME_PLAYERS) {
+        lines.push("", `⚽ Для игры нужно ${MIN_GAME_PLAYERS} игроков в основе. Не хватает ${MIN_GAME_PLAYERS - main}.`);
+      } else {
+        const teams = completeTeams(session);
+        const substitutes = main - teams * PLAYERS_PER_TEAM;
+        lines.push("", `⚽ ${teams} команды по ${PLAYERS_PER_TEAM}.${substitutes ? ` Игроков на замену: ${substitutes}.` : ""}`);
+      }
+    }
     const teams = teamsText(session);
     if (teams) lines.push("", teams);
   } else {

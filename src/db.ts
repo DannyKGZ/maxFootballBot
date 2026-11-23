@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS payments (
 CREATE TABLE IF NOT EXISTS receipts (hash TEXT PRIMARY KEY, chat_id INTEGER NOT NULL, payer_id INTEGER NOT NULL, at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS match_history (
   chat_id INTEGER NOT NULL, game_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
-  roster TEXT NOT NULL, mvp TEXT,
+  roster TEXT NOT NULL, mvp TEXT, cancellation_reason TEXT,
   PRIMARY KEY (chat_id, game_at)
 );
 CREATE INDEX IF NOT EXISTS match_history_expiry ON match_history (expires_at);
@@ -125,6 +125,10 @@ function upgradeSchema(d: Database.Database): void {
     d.exec("ALTER TABLE mvp_players ADD COLUMN year_count INTEGER NOT NULL DEFAULT 0");
     d.exec("UPDATE mvp_players SET year_count = count");
     console.log("[db] в рейтинг MVP добавлен счёт игрового года");
+  }
+  const historyCols = d.prepare("PRAGMA table_info(match_history)").all() as Array<{ name: string }>;
+  if (!historyCols.some((c) => c.name === "cancellation_reason")) {
+    d.exec("ALTER TABLE match_history ADD COLUMN cancellation_reason TEXT");
   }
 
   // Несколько чатов: расписание, время игры и шапка записи стали своими у каждого
