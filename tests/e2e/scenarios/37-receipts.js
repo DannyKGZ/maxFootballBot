@@ -1,5 +1,6 @@
 const path = require("path");
 const Database = require("better-sqlite3");
+const { rejects } = require("node:assert/strict");
 const { dmOf } = require("../harness");
 
 const H = 3_600_000;
@@ -18,8 +19,28 @@ module.exports = {
   async run(t) {
     // Разбор чека (чистые функции).
     const { CHAT_IDS, ...envForDist } = ENV;
-    Object.assign(process.env, envForDist, { BOT_TOKEN: "test", DOTENV_CONFIG_PATH: "/nonexistent" });
-    const { findAmount, recipientMatches } = require("../../../dist/receiptLogic");
+    Object.assign(process.env, envForDist, { BOT_TOKEN: "test", DOTENV_CONFIG_PATH: "/nonexistent", RECEIPT_DOWNLOAD_ORIGINS: "" });
+    const { downloadPdf, findAmount, recipientMatches } = require("../../../dist/receiptLogic");
+    const fetchOriginal = global.fetch;
+    const requests = [];
+    let downloadStatus = 200;
+    try {
+      global.fetch = async (url, options) => {
+        requests.push({ origin: url.origin, authorization: new Headers(options.headers).get("Authorization") });
+        return new Response("%PDF-", { status: downloadStatus });
+      };
+      const sample = await downloadPdf("https://fd.oneme.ru/getfile");
+      t.ok(Buffer.from(sample).toString() === "%PDF-" && requests[0].authorization === null,
+        "файловый хост MAX разрешён по умолчанию, токен ему не передаётся");
+      await rejects(downloadPdf("https://files.example.test/receipt.pdf"), /не входит в список доверенных/);
+      t.ok(requests.length === 1, "адрес вне разрешённого списка не запрашивается");
+      downloadStatus = 401;
+      await rejects(downloadPdf("https://fd.oneme.ru/getfile"), /HTTP 401/);
+      t.ok(requests.length === 2 && requests[1].authorization === null,
+        "ошибка авторизации файлового хоста не вызывает повтор с токеном");
+    } finally {
+      global.fetch = fetchOriginal;
+    }
     t.ok(findAmount("Итого\n1 050 ₽\nСумма 1 050 ₽") === 1050 && findAmount("Сумма перевода 700,00 ₽") === 700 && findAmount("Итого\n350 ₽") === 350 && findAmount("без суммы") === null, "сумма из текста чека");
     const exp = { phone: "+7 (900) 111-22-33", recipient: "Мария П." };
     t.ok(recipientMatches("Телефон получателя +7 (900) 111-22-33", exp) && recipientMatches("Получатель Мария П.", exp) && !recipientMatches("Получатель Иван И. +7 (900) 000-00-00", exp), "получатель: по телефону или имени");

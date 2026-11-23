@@ -77,7 +77,7 @@ function openRowIn(chatId: number, userId: number): PaymentRow | undefined {
     .get(chatId, userId) as PaymentRow | undefined;
 }
 
-async function downloadPdf(rawUrl: string): Promise<Uint8Array> {
+export async function downloadPdf(rawUrl: string): Promise<Uint8Array> {
   const url = new URL(rawUrl);
   const apiOrigin = new URL(config.apiBaseUrl).origin;
   const isApi = url.origin === apiOrigin;

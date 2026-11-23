@@ -71,7 +71,10 @@ export const config = {
   tickIntervalMs: optionalInt("TICK_INTERVAL_MS", 60_000),
   // MAX_API_BASE_URL нужен только для тестов с подставным сервером; в проде не задаётся.
   apiBaseUrl: process.env.MAX_API_BASE_URL || "https://platform-api2.max.ru",
-  receiptDownloadOrigins: (process.env.RECEIPT_DOWNLOAD_ORIGINS || "").split(/[,\s]+/).filter(Boolean),
+  receiptDownloadOrigins: [
+    "https://fd.oneme.ru", // файловые вложения MAX приходят с отдельного HTTPS-адреса
+    ...(process.env.RECEIPT_DOWNLOAD_ORIGINS || "").split(/[,\s]+/).filter(Boolean),
+  ],
 };
 
 config.defaultChatId = config.chatIds[0] ?? 0;
