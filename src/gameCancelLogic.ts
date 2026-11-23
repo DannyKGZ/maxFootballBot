@@ -7,9 +7,15 @@ import { getLedgerMessageId } from "./paymentLedger";
 import { db } from "./db";
 
 export const CANCEL_GAME_RE = /^\/(?:отмена_?игры|отменить_?игру|cancel_game)(?:\s+([\s\S]+))?$/i;
-const USAGE = "Укажите дату будущей игры в формате /отменаигры ДД.ММ.ГГГГ. Если в этот день две игры, добавьте время ЧЧ:ММ.";
+const USAGE = "Введите /отменаигры для ближайшей игры. Для другой даты доступен формат /отменаигры ДД.ММ.ГГГГ [ЧЧ:ММ].";
 
 function selectGame(chatId: number, arg: string, now: number): Date | string {
+  if (!arg) {
+    const upcoming = [getSession(chatId), getArchivedSession(chatId)]
+      .map((session) => Date.parse(session?.date ?? ""))
+      .filter((start) => start > now);
+    return upcoming.length ? new Date(Math.min(...upcoming)) : computeNextGameDate(chatId, new Date(now));
+  }
   const match = /^(\d{2})\.(\d{2})\.(\d{4})(?:\s+((?:[01]\d|2[0-3]):[0-5]\d))?$/.exec(arg);
   if (!match) return USAGE;
   const [, day, month, year, time] = match;
@@ -39,14 +45,20 @@ export async function cancelGameCommand(chatId: number, replyChatId: number, use
   const game = selectGame(chatId, arg?.trim() ?? "", Date.now());
   if (typeof game === "string") return game;
   const when = `${dateFull(game)} в ${timeHM(game)}`;
-  const gameDate = game.toISOString();
   if (db().prepare("SELECT 1 FROM match_history WHERE chat_id = ? AND game_at = ? AND mvp IS NOT NULL").get(chatId, game.getTime())) {
     return "По этой игре уже подведены итоги MVP.";
   }
-  const cancelled = cancelStoredGame(chatId, gameDate);
-  if (!cancelled) return `Игра ${when} уже отменена.`;
-
   const notice = `🚫 Игра ${when} отменена. Остальные игры остаются по расписанию.`;
+  if (!await cancelAndNotify(chatId, game.toISOString(), notice, replyChatId !== chatId)) {
+    return `Игра ${when} уже отменена.`;
+  }
+  return notice;
+}
+
+export async function cancelAndNotify(chatId: number, gameDate: string, notice: string, announce: boolean): Promise<boolean> {
+  const cancelled = cancelStoredGame(chatId, gameDate);
+  if (!cancelled) return false;
+
   const messages = new Set([
     ...cancelled.sessions.flatMap((session) => [session.messageId, session.draft?.messageId, session.paymentMessageId]),
     cancelled.vote?.messageId,
@@ -56,7 +68,7 @@ export async function cancelGameCommand(chatId: number, replyChatId: number, use
     if (mid) await editMessage(chatId, mid, { text: notice, attachments: [] })
       .catch((err) => console.warn("[gameCancel] не удалось обновить сообщение:", err));
   }
-  if (replyChatId !== chatId) await sendMessageToChat(chatId, { text: notice })
+  if (announce) await sendMessageToChat(chatId, { text: notice })
     .catch((err) => console.warn("[gameCancel] не удалось объявить отмену в группе:", err));
-  return notice;
+  return true;
 }

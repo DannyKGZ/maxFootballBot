@@ -14,6 +14,7 @@ import { pruneIncomingUpdates, startUpdateWorker, stopUpdateWorker } from "./upd
 import { deleteSubscription, getSubscriptions, registerWebhook, setBotCommands } from "./maxApi";
 import { USER_MENU_COMMANDS } from "./actions";
 import { initChatSettings } from "./settingsStore";
+import { initGameAttendance } from "./gameAttendance";
 
 async function main(): Promise<void> {
   if (config.updatesMode === "webhook" && (!/^[A-Za-z0-9_-]{5,256}$/.test(config.webhookSecret) || config.webhookSecret === "change_me_please")) {
@@ -21,6 +22,7 @@ async function main(): Promise<void> {
   }
   loadSessionsFromDisk();
   initChatSettings(config.chatIds); // настройки чатов в базе: прежние чаты — как были, новые — по умолчанию
+  initGameAttendance();
   syncMatchHistory();
   pruneMatchHistory();
   pruneIncomingUpdates();

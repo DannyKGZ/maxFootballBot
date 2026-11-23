@@ -122,6 +122,7 @@ export async function handlePanelAction(
     case "adm_vote": {
       const outcome = await voteLogic.startVote(group, userId);
       if (outcome === "no_session") return "Нет записи с игроками для голосования";
+      if (outcome === "not_enough_players") return voteLogic.MVP_NEEDS_PLAYERS;
       if (outcome === "already_active") return "Голосование уже идёт";
       return "Голосование опубликовано в чате";
     }
@@ -129,6 +130,7 @@ export async function handlePanelAction(
     case "adm_finish": {
       const outcome = await voteLogic.finishVote(group, userId);
       if (outcome === "no_vote") return "Сейчас нет активного голосования";
+      if (outcome === "not_enough_players") return voteLogic.MVP_NEEDS_PLAYERS;
       return "Итоги опубликованы, MVP засчитан";
     }
 

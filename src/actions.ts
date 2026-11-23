@@ -63,6 +63,7 @@ export async function voteStart(chatId: number, userId: number): Promise<ActionR
   const outcome = await voteLogic.startVote(chatId, userId);
   if (outcome === "not_admin") return deny(NOT_ADMIN);
   if (outcome === "no_session") return deny("Нет записи с игроками, за которую можно голосовать.");
+  if (outcome === "not_enough_players") return deny(voteLogic.MVP_NEEDS_PLAYERS);
   if (outcome === "already_active") {
     return deny("Голосование уже идёт — сначала завершите его (/итоги или кнопка «Итоги»).");
   }
@@ -73,6 +74,7 @@ export async function voteFinish(chatId: number, userId: number): Promise<Action
   const outcome = await voteLogic.finishVote(chatId, userId);
   if (outcome === "not_admin") return deny(NOT_ADMIN);
   if (outcome === "no_vote") return deny("Сейчас нет активного голосования.");
+  if (outcome === "not_enough_players") return deny(voteLogic.MVP_NEEDS_PLAYERS);
   return {};
 }
 

@@ -1,6 +1,7 @@
 import { config } from "./config";
 import { db } from "./db";
 import { isGameCancelled } from "./gameCancellations";
+import { hasEnoughPlayers } from "./gameAttendance";
 import { matchExpiresAt, saveMatchMvp } from "./matchHistory";
 import * as api from "./maxApi";
 import { voteCandidatesKeyboard } from "./keyboard";
@@ -19,6 +20,7 @@ import {
   getArchivedSession,
   getRatingMessage,
   getSession,
+  getSessionForGame,
   getVoteSession,
   setRatingMessage,
   setSession,
@@ -39,7 +41,8 @@ import { pickCongrats } from "./mvpCongrats";
  *    сообщения с записью на игру и итогового сообщения MVP.
  */
 
-export type StartVoteOutcome = "not_admin" | "no_session" | "already_active" | "started";
+export type StartVoteOutcome = "not_admin" | "no_session" | "not_enough_players" | "already_active" | "started";
+export const MVP_NEEDS_PLAYERS = "Голосование за MVP откроется, когда в основе наберётся минимальный состав.";
 
 /** Считает, сколько раз каждый userId встречается в составе — это и есть его лимит голосов. */
 function buildCredits(playerUserIds: number[]): Record<number, number> {
@@ -84,18 +87,18 @@ export async function autoStartVoteIfDue(session: FootballSession, now = Date.no
   // Только в течение 6 часов после срока: по давно прошедшей игре (например, после
   // долгого простоя бота) голосование само не открываем — это сделает админ.
   if (now > due + 6 * 3_600_000) return false;
-  if (!session.players.some((p) => !p.isReserve)) return false;
+  if (!hasEnoughPlayers(session) || !session.players.some((p) => !p.isReserve)) return false;
   session.voteAutoStarted = true; // отмечаем до запуска: при сбое лучше пропустить, чем запустить дважды
   setSession(session);
   if (getVoteSession(session.chatId)) return false; // админ уже запустил вручную
-  return (await openVote(session.chatId)) === "started";
+  return (await openVote(session.chatId, session)) === "started";
 }
 
-async function openVote(chatId: number): Promise<StartVoteOutcome> {
+async function openVote(chatId: number, session = pickGameForVote(chatId)): Promise<StartVoteOutcome> {
   if (getVoteSession(chatId)) return "already_active";
 
-  const session = pickGameForVote(chatId);
   if (!session) return "no_session";
+  if (!hasEnoughPlayers(session)) return "not_enough_players";
 
   // Только основа: резерв не играл — он не кандидат и голосов не даёт.
   const main = session.players.filter((p) => !p.isReserve);
@@ -121,13 +124,14 @@ async function openVote(chatId: number): Promise<StartVoteOutcome> {
   // Кнопка «👕 Я забрал манишки» — перед голосованием, чтобы голосование было последним.
   await postManiskaPrompt(session).catch((err) => console.warn("[voteLogic] не удалось отправить кнопку манишек:", err instanceof Error ? err.message : err));
   if (isGameCancelled(chatId, session.date)) return "no_session";
+  if (!hasEnoughPlayers(session)) return "not_enough_players";
 
   const res = await api.sendMessageToChat(chatId, {
     text: buildVoteText(vote),
     attachments: [voteKeyboard(vote)],
   });
   vote.messageId = res.message.body.mid;
-  if (isGameCancelled(chatId, session.date)) {
+  if (isGameCancelled(chatId, session.date) || !hasEnoughPlayers(session)) {
     await api.deleteMessage(chatId, vote.messageId).catch(() => undefined);
     return "no_session";
   }
@@ -192,7 +196,7 @@ export async function castVote(
   callbackId?: string,
 ): Promise<CastVoteOutcome> {
   const vote = getVoteSession(chatId);
-  if (!vote) return "no_vote";
+  if (!vote || !canUseVote(vote)) return "no_vote";
   if (callbackId && vote.votes.some((v) => v.callbackId === callbackId)) {
     if (vote.votes.length >= totalVotes(vote)) await finalizeVote(chatId, "all_voted");
     else await repostVoteMessage(chatId);
@@ -235,7 +239,7 @@ export async function castVote(
  */
 export async function repostVoteMessage(chatId: number): Promise<boolean> {
   const vote = getVoteSession(chatId);
-  if (!vote) return false;
+  if (!vote || !canUseVote(vote)) return false;
   ensureVoterNames(vote);
   const old = vote.messageId;
   const res = await api.sendMessageToChat(chatId, {
@@ -263,17 +267,25 @@ export async function voteCommand(chatId: number, userId: number): Promise<strin
   const outcome = await startVote(chatId, userId);
   if (outcome === "not_admin") return "Голосование сейчас не идёт — его запускает админ.";
   if (outcome === "no_session") return "Нет записи с игроками, за которую можно голосовать.";
+  if (outcome === "not_enough_players") return MVP_NEEDS_PLAYERS;
   return null;
 }
 
-export type FinishVoteOutcome = "not_admin" | "no_vote" | "finished";
+export type FinishVoteOutcome = "not_admin" | "no_vote" | "not_enough_players" | "finished";
 
 /** /итоги и кнопка «Итоги» — только админ. */
 export async function finishVote(chatId: number, adminUserId: number): Promise<FinishVoteOutcome> {
   if (!(await isChatAdmin(chatId, adminUserId))) return "not_admin";
-  if (!getVoteSession(chatId)) return "no_vote";
+  const vote = getVoteSession(chatId);
+  if (!vote) return "no_vote";
+  if (!canUseVote(vote)) return "not_enough_players";
   await finalizeVote(chatId, false);
   return "finished";
+}
+
+function canUseVote(vote: VoteSession): boolean {
+  const game = getSessionForGame(vote.chatId, vote.gameDate);
+  return !game || hasEnoughPlayers(game);
 }
 
 /** Чей аккаунт за победителем (для «легенды года»): сам игрок или тот, кто его записывает. */
@@ -302,10 +314,10 @@ function winnerHolder(vote: VoteSession, name: string): RoleHolder | null {
  */
 export async function finalizeVote(chatId: number, reason: boolean | "all_voted"): Promise<void> {
   const vote = getVoteSession(chatId);
-  if (!vote) return;
+  if (!vote || !canUseVote(vote)) return;
 
   const winners = getVoteWinners(vote);
-  const game = [getSession(chatId), getArchivedSession(chatId)].find((s) => s?.date === vote.gameDate);
+  const game = getSessionForGame(chatId, vote.gameDate);
   const note =
     reason === "all_voted"
       ? "\n\nПроголосовали все."

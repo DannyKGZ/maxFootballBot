@@ -1,6 +1,8 @@
 import { dateShort } from "./format";
 import { db } from "./db";
 import { isGameCancelled } from "./gameCancellations";
+import { hasEnoughPlayers } from "./gameAttendance";
+import { getSessionForGame } from "./store";
 import * as api from "./maxApi";
 import { escapeHtml, mention, paymentDetailsLine, paymentHeader } from "./messageFormatter";
 import { getChatOptions, getPayment } from "./settingsStore";
@@ -40,12 +42,19 @@ export function ledgerRows(chatId: number, gameDate: string): PaymentRow[] {
   return db().prepare("SELECT * FROM payments WHERE chat_id = ? AND game_date = ? ORDER BY id").all(chatId, gameDate) as PaymentRow[];
 }
 
+export function canCollectPayment(chatId: number, gameDate: string): boolean {
+  if (isGameCancelled(chatId, gameDate)) return false;
+  const session = getSessionForGame(chatId, gameDate);
+  return !session || hasEnoughPlayers(session);
+}
+
 export function getRow(id: number): PaymentRow | undefined {
   return db().prepare("SELECT * FROM payments WHERE id = ?").get(id) as PaymentRow | undefined;
 }
 
 /** Строки учёта игры (создаются один раз — по основе на момент первого напоминания об оплате). */
 export function ensureLedger(session: FootballSession): PaymentRow[] {
+  if (!hasEnoughPlayers(session) || isGameCancelled(session.chatId, session.date)) return [];
   const existing = ledgerRows(session.chatId, session.date);
   if (existing.length) return existing;
   const unit = getPayment(session.chatId).amount;
@@ -112,7 +121,7 @@ export function setLedgerMessage(chatId: number, gameDate: string, mid: string):
 
 /** Перерисовать сообщение «💰 Оплата» этой игры (после оплаты/отметки админом). */
 export async function refreshLedgerMessage(chatId: number, gameDate: string): Promise<void> {
-  if (isGameCancelled(chatId, gameDate)) return;
+  if (!canCollectPayment(chatId, gameDate)) return;
   const mid = getLedgerMessageId(chatId, gameDate);
   if (!mid) return;
   await api
@@ -152,8 +161,9 @@ export function debtors(chatId: number, period: ReturnType<typeof parseMonth>): 
        ON c.chat_id = p.chat_id AND c.game_date = p.game_date
        WHERE p.chat_id = ? AND c.chat_id IS NULL AND p.status NOT IN ('paid', 'manual') ORDER BY p.game_date, p.id`)
     .all(chatId) as PaymentRow[];
-  if (!period || period === "all") return rows;
   return rows.filter((r) => {
+    if (!canCollectPayment(chatId, r.game_date)) return false;
+    if (!period || period === "all") return true;
     const t = new Date(r.game_date).getTime();
     return t >= period.from.getTime() && t < period.to.getTime();
   });

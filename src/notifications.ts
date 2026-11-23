@@ -1,5 +1,6 @@
 import { getChatOptions } from "./settingsStore";
 import { isGameCancelled } from "./gameCancellations";
+import { hasEnoughPlayers } from "./gameAttendance";
 import { buildLedgerText, ensureLedger, receiptsEnabled, setLedgerMessage } from "./paymentLedger";
 import { config, isManagedChat } from "./config";
 import * as api from "./maxApi";
@@ -35,7 +36,7 @@ function slotsFor(session: FootballSession): Slot[] {
   if (opts.reminderBefore > 0) {
     slots.push({ key: "reminder", at: game - opts.reminderBefore * HOUR, kind: "reminder", hours: opts.reminderBefore });
   }
-  if (!opts.payment) return slots;
+  if (!opts.payment || !hasEnoughPlayers(session)) return slots;
   for (let h = opts.paymentBefore; h >= 1; h--) {
     slots.push({ key: `pay-${h}`, at: game - h * HOUR, kind: "payment", phase: "before", hours: h });
   }
@@ -76,6 +77,7 @@ async function notifySession(session: FootballSession, now: number, save: (s: Fo
         await api.sendMessageToChat(session.chatId, { text: buildReminderText(session) });
         continue;
       }
+      if (!hasEnoughPlayers(session)) continue;
       // Чат с проверкой чеков: живой список оплаты, упоминаются только те, кто ничего не прислал.
       const ledger = receiptsEnabled(session.chatId);
       if (ledger && !ensureLedger(session).some((r) => r.status === "unpaid")) continue; // все оплатили или прислали чек
@@ -83,10 +85,15 @@ async function notifySession(session: FootballSession, now: number, save: (s: Fo
         // Прошлое напоминание об оплате заменяем новым, чтобы не копились.
         await api.deleteMessage(session.chatId, session.paymentMessageId).catch(() => undefined);
       }
+      if (isGameCancelled(session.chatId, session.date) || !hasEnoughPlayers(session)) continue;
       const res = await api.sendMessageToChat(session.chatId, {
         text: ledger ? buildLedgerText(session.chatId, session.date) : buildPaymentText(session, slot.phase!, slot.hours),
         format: "html",
       });
+      if (isGameCancelled(session.chatId, session.date) || !hasEnoughPlayers(session)) {
+        await api.deleteMessage(session.chatId, res.message.body.mid).catch(() => undefined);
+        continue;
+      }
       session.paymentMessageId = res.message.body.mid;
       if (ledger) setLedgerMessage(session.chatId, session.date, res.message.body.mid);
       save(session);

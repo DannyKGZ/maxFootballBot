@@ -2,14 +2,17 @@ import cron, { ScheduledTask } from "node-cron";
 import { config, isManagedChat } from "./config";
 import { closeSignupIfStarted, publishNewSession } from "./sessionLogic";
 import { runNotifications } from "./notifications";
-import { getChatOptions, getGameSlots, loadSchedule } from "./settingsStore";
+import { getChatOptions, getGameSlots, getMinPlayers, loadSchedule } from "./settingsStore";
 import { gameAtPublication, slotCrons } from "./gameDays";
 import { isGameCancelled } from "./gameCancellations";
 import { rolloverIfDue } from "./seasonLogic";
-import { getAllSessions, getAllVoteSessions, syncMatchHistory } from "./store";
+import { getAllArchivedSessions, getAllSessions, getAllVoteSessions, getSession, getSessionForGame, setArchivedSession, setSession, syncMatchHistory } from "./store";
 import { pruneMatchHistory } from "./matchHistory";
 import { pruneIncomingUpdates } from "./updateQueue";
 import { autoStartVoteIfDue, finalizeVote, publishVoteResults } from "./voteLogic";
+import { mainPlayerCount, needsAttendanceCheck } from "./gameAttendance";
+import { cancelAndNotify } from "./gameCancelLogic";
+import { dateFull, timeHM } from "./format";
 
 // Свои cron-задачи публикации записи у каждого чата (у /игры — по одной на пару).
 const tasks = new Map<number, ScheduledTask[]>();
@@ -58,6 +61,23 @@ export function applyChatSchedule(chatId: number): void {
  * автозакрытие голосования. Отметки хранятся в базе — рестарт не даёт повторов.
  */
 async function tick(now = Date.now()): Promise<void> {
+  const current = getAllSessions();
+  const archived = getAllArchivedSessions().filter((s) => getSession(s.chatId)?.date !== s.date);
+  for (const session of [...current, ...archived]) {
+    const game = new Date(session.date);
+    if (!isManagedChat(session.chatId) || !needsAttendanceCheck(session) || game.getTime() > now) continue;
+    if (getSessionForGame(session.chatId, session.date) !== session) continue;
+    const count = mainPlayerCount(session);
+    const minimum = getMinPlayers(session.chatId);
+    if (count < minimum) {
+      const notice = `🚫 Игра ${dateFull(game)} в ${timeHM(game)} не состоялась. В основе собралось ${count} из ${minimum} игроков.`;
+      await cancelAndNotify(session.chatId, session.date, notice, true);
+    } else {
+      session.attendanceConfirmed = true;
+      const save = getSession(session.chatId) === session ? setSession : setArchivedSession;
+      save(session);
+    }
+  }
   syncMatchHistory(now);
   pruneMatchHistory(now);
   pruneIncomingUpdates(now);

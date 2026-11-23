@@ -17,7 +17,7 @@ module.exports = {
     await t.say(1, "/старт");
     await t.say(2, "+");
     const { date, messageId } = session(-1);
-    const command = "/отменаигры " + dateLabel(date);
+    const command = "/отменаигры";
     await t.say(2, command);
     t.ok(!!t.find(/Только для админов/) && session(-1).date === date, "участник не может отменить матч");
     await t.say(1, "/отменаигры 31.02.2027");

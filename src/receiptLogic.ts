@@ -1,9 +1,9 @@
 import { createHash } from "crypto";
 import { config } from "./config";
-import { isGameCancelled } from "./gameCancellations";
 import { db } from "./db";
 import * as api from "./maxApi";
 import {
+  canCollectPayment,
   getRow,
   isSettled,
   PaymentRow,
@@ -38,7 +38,7 @@ function openRowFor(userId: number): PaymentRow | undefined {
   const rows = db()
     .prepare("SELECT * FROM payments WHERE payer_id = ? AND status NOT IN ('paid', 'manual') ORDER BY game_date DESC, id DESC")
     .all(userId) as PaymentRow[];
-  return rows.find((r) => config.chatIds.includes(r.chat_id) && receiptsEnabled(r.chat_id) && !isGameCancelled(r.chat_id, r.game_date));
+  return rows.find((r) => config.chatIds.includes(r.chat_id) && receiptsEnabled(r.chat_id) && canCollectPayment(r.chat_id, r.game_date));
 }
 
 async function pdfText(bytes: Uint8Array): Promise<string> {
@@ -73,12 +73,13 @@ export function recipientMatches(text: string, expected: { phone: string; recipi
 
 /** Неоплаченная строка этого человека в конкретном чате (самая свежая игра). */
 function openRowIn(chatId: number, userId: number): PaymentRow | undefined {
-  return db()
+  const rows = db()
     .prepare(`SELECT p.* FROM payments p LEFT JOIN game_cancellations c
        ON c.chat_id = p.chat_id AND c.game_date = p.game_date
        WHERE p.chat_id = ? AND p.payer_id = ? AND c.chat_id IS NULL AND p.status NOT IN ('paid', 'manual')
-       ORDER BY p.game_date DESC LIMIT 1`)
-    .get(chatId, userId) as PaymentRow | undefined;
+       ORDER BY p.game_date DESC`)
+    .all(chatId, userId) as PaymentRow[];
+  return rows.find((r) => canCollectPayment(chatId, r.game_date));
 }
 
 export async function downloadPdf(rawUrl: string): Promise<Uint8Array> {
@@ -179,7 +180,7 @@ export async function handleReceipt(chatId: number, user: MaxUser, attachments: 
   const file = pdf ?? files[0];
   const reason = db().transaction(() => {
     const current = getRow(row.id);
-    if (!current || isSettled(current) || isGameCancelled(current.chat_id, current.game_date)) return undefined;
+    if (!current || isSettled(current) || !canCollectPayment(current.chat_id, current.game_date)) return undefined;
     let note = check.reason;
     if (check.hash && !db().prepare("INSERT OR IGNORE INTO receipts (hash, chat_id, payer_id, at) VALUES (?, ?, ?, ?)")
       .run(check.hash, row.chat_id, user.user_id, Date.now()).changes) note = "этот чек уже присылали";

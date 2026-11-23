@@ -39,6 +39,7 @@ export const config = {
   gameDayOfWeek: optionalInt("GAME_DAY_OF_WEEK", 3),
   gameTime: process.env.GAME_TIME || "21:30",
   maxPlayers: optionalInt("MAX_PLAYERS", 10),
+  minPlayers: Math.max(1, Math.trunc(optionalInt("MIN_PLAYERS", 10))),
   // База SQLite со всем состоянием бота (записи, голосования, рейтинг, расписание).
   dbFile: process.env.DB_FILE || "./data/bot.db",
   // Старые JSON-файлы — из них данные один раз переносятся в базу при первом запуске.

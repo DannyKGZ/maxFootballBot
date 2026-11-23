@@ -2,6 +2,7 @@ import { db } from "./db";
 import { dateFull, timeHM } from "./format";
 import { packBlocks } from "./messageParts";
 import { isGameCancelled } from "./gameCancellations";
+import { hasEnoughPlayers } from "./gameAttendance";
 import type { FootballSession, VoteSession } from "./types";
 
 export const HISTORY_RE = /^\/(?:история|history)(?:\s+([\s\S]+))?$/i;
@@ -32,7 +33,7 @@ function saveRoster(chatId: number, gameAt: number, roster: Roster, refresh: boo
 
 export function rememberPlayedMatch(session: FootballSession, now = Date.now()): void {
   const gameAt = Date.parse(session.date);
-  if (gameAt > now || isGameCancelled(session.chatId, session.date)) return;
+  if (gameAt > now || !hasEnoughPlayers(session) || isGameCancelled(session.chatId, session.date)) return;
   saveRoster(session.chatId, gameAt, session.players.map(({ displayName, isReserve }) => ({ displayName, isReserve })), true, now);
 }
 

@@ -207,6 +207,7 @@ class Harness {
       MVP_FILE: path.join(this.dataDir, "mvp.json"),
       CRON_SCHEDULE: "0 0 1 1 *", // чтобы расписание не сработало посреди теста
       MAX_PLAYERS: "15",
+      MIN_PLAYERS: "1",
       REMINDER_HOURS_BEFORE: "0",
       PAYMENT_HOURS_BEFORE: "0",
       PAYMENT_HOURS_AFTER: "0",

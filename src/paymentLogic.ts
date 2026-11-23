@@ -1,9 +1,10 @@
 import * as api from "./maxApi";
 import { NOT_ADMIN } from "./format";
-import { debtorLine, debtors, getRow, parseMonth, receiptsEnabled, ensureLedger, buildLedgerText, refreshLedgerMessage, setLedgerMessage, shortDate, updateRow } from "./paymentLedger";
+import { canCollectPayment, debtorLine, debtors, getRow, parseMonth, receiptsEnabled, ensureLedger, buildLedgerText, refreshLedgerMessage, setLedgerMessage, shortDate, updateRow } from "./paymentLedger";
 import { isGameCancelled } from "./gameCancellations";
+import { hasEnoughPlayers } from "./gameAttendance";
 import { applyMaxPlayers, isChatAdmin } from "./sessionLogic";
-import { getChatOptions, getMaxPlayers, getPayment, hasOwnPayment, setChatOptions, setMaxPlayers, setPayment } from "./settingsStore";
+import { getChatOptions, getMaxPlayers, getMinPlayers, getPayment, hasOwnPayment, setChatOptions, setMaxPlayers, setMinPlayers, setPayment } from "./settingsStore";
 import { getSession } from "./store";
 
 /**
@@ -68,6 +69,20 @@ export async function limitCommand(groupChatId: number, userId: number, arg?: st
   }
   await applyMaxPlayers(groupChatId);
   return `✅ Основа: ${getMaxPlayers(groupChatId)}, дальше резерв. Список пересчитан.`;
+}
+
+export const MIN_PLAYERS_RE = /^\/минимум(?:\s+([\s\S]+))?$/i;
+
+export async function minPlayersCommand(chatId: number, userId: number, arg?: string): Promise<string> {
+  if (!(await isChatAdmin(chatId, userId))) return NOT_ADMIN;
+  const text = arg?.trim();
+  if (text === "сброс") setMinPlayers(chatId, null);
+  else if (text) {
+    const n = Number(text);
+    if (!/^\d+$/.test(text) || n < 1 || n > 100) return "Укажите число от 1 до 100, например /минимум 10.";
+    setMinPlayers(chatId, n);
+  }
+  return `👥 Минимум игроков в основе для проведения игры: ${getMinPlayers(chatId)}.\nИзменить — /минимум 10. Вернуть значение по умолчанию — /минимум сброс.`;
 }
 
 /**
@@ -141,6 +156,7 @@ export async function paidCommand(groupChatId: number, userId: number, arg?: str
     const row = ids[n - 1] !== undefined ? getRow(ids[n - 1]) : undefined;
     if (!row || row.chat_id !== groupChatId) return `Нет номера ${n} в списке — посмотрите /должники.`;
     if (isGameCancelled(groupChatId, row.game_date)) return `Игра для оплаты №${n} отменена. Обновите /должники.`;
+    if (!canCollectPayment(groupChatId, row.game_date)) return `Для игры по оплате №${n} пока не набрался состав. Обновите /должники.`;
     if (row.status === "paid" || row.status === "manual") {
       done.push(`${row.payer_name} — уже отмечен`);
       continue;
@@ -183,6 +199,10 @@ export async function paymentListCommand(groupChatId: number, userId: number): P
   
   if (!receiptsEnabled(groupChatId)) {
     await api.sendMessageToChat(groupChatId, { text: "В этом чате учёт оплаты (проверка чеков) не включён." });
+    return;
+  }
+  if (!hasEnoughPlayers(s)) {
+    await api.sendMessageToChat(groupChatId, { text: `Оплата откроется, когда в основе будет минимум ${getMinPlayers(groupChatId)} игроков.` });
     return;
   }
   

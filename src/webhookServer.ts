@@ -19,6 +19,7 @@ import { CONTACTS_RE, sendDeveloperContacts } from "./developerContacts";
 import {
   DEBTORS_RE,
   LIMIT_RE,
+  MIN_PLAYERS_RE,
   PAID_RE,
   PAYMENT_RE,
   PAYMENT_LIST_RE,
@@ -26,6 +27,7 @@ import {
   debtorsCommand,
   sendDebtorsWithReceipts,
   limitCommand,
+  minPlayersCommand,
   paidCommand,
   paymentListCommand,
   paymentCommand,
@@ -103,6 +105,7 @@ const TEXT_COMMANDS: TextCommand[] = [
   { re: PAID_RE, run: (c, m) => paidCommand(c.group, c.userId, m[2]) },
   { re: REMINDERS_RE, run: (c, m) => remindersCommand(c.group, c.userId, m[2]) },
   { re: LIMIT_RE, run: (c, m) => limitCommand(c.group, c.userId, m[2]) },
+  { re: MIN_PLAYERS_RE, run: (c, m) => minPlayersCommand(c.group, c.userId, m[1]) },
   { re: PAYMENT_RE, run: (c, m) => paymentCommand(c.group, c.userId, m[2]) },
   { re: PAYMENT_LIST_RE, where: "group", run: (c) => paymentListCommand(c.group, c.userId) },
   { re: SETTINGS_RE, run: (c) => settingsCommand(c.group, c.reply, c.userId) },
@@ -232,7 +235,7 @@ async function handleMessageCreated(update: MaxUpdate): Promise<void> {
 // Все команды бота — для подсказки, если команду написали с ошибкой.
 const KNOWN_COMMANDS = [
   "статус", "голос", "имя", "mvp", "мвп", "history", "история", "help", "инструкция", "помощь", "составы", "контакты",
-  "старт", "закрыть", "отменаигры", "описание", "расписание", "игры", "оплата", "лимит", "напоминания", "должники", "оплатил", "легенда", "манишканосец", "манишки", "голосование", "итоги", "объединить",
+  "старт", "закрыть", "отменаигры", "описание", "расписание", "игры", "оплата", "лимит", "минимум", "напоминания", "должники", "оплатил", "легенда", "манишканосец", "манишки", "голосование", "итоги", "объединить",
   "удалить", "переименовать", "заменить", "поменять", "дележка", "всем", "мвпСезонныйСброс", "мвпОбщийСброс",
 ];
 

@@ -232,6 +232,16 @@ export function setMaxPlayers(chatId: number, n: number | null): void {
   else db().prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(`max_players:${chatId}`, String(n));
 }
 
+export function getMinPlayers(chatId: number): number {
+  const row = db().prepare("SELECT value FROM meta WHERE key = ?").get(`min_players:${chatId}`) as { value: string } | undefined;
+  return row ? Number(row.value) : config.minPlayers;
+}
+
+export function setMinPlayers(chatId: number, n: number | null): void {
+  if (n === null) db().prepare("DELETE FROM meta WHERE key = ?").run(`min_players:${chatId}`);
+  else db().prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(`min_players:${chatId}`, String(n));
+}
+
 // ---- Оплата чата (/оплата) ----
 
 export interface Payment {

@@ -7,6 +7,7 @@ import { getSession, setSession } from "./store";
 import { ButtonAction, Draft, FootballSession, Player } from "./types";
 import { escapeHtml, paymentDetailsLine, paymentHeader, paymentPayerLines } from "./messageFormatter";
 import { ensureLedger, receiptsEnabled } from "./paymentLedger";
+import { hasEnoughPlayers } from "./gameAttendance";
 
 /**
  * Дележка на команды:
@@ -99,7 +100,8 @@ function render(s: FootballSession): { text: string; format?: "html"; attachment
       "⚽ Составы готовы!",
       "",
       ...teamLines(s, d).map(escapeHtml),
-      ...(getChatOptions(s.chatId).payment ? ["", paymentHeader(s.chatId, s.date), paymentDetailsLine(s.chatId), ...paymentPayerLines(s)] : []),
+      ...(getChatOptions(s.chatId).payment && hasEnoughPlayers(s)
+        ? ["", paymentHeader(s.chatId, s.date), paymentDetailsLine(s.chatId), ...paymentPayerLines(s)] : []),
     ].join("\n"),
     format: "html",
     attachments: [],
@@ -232,7 +234,7 @@ export async function handleDraftAction(chatId: number, userId: number, action: 
     }
     await show(s);
     // Отправляем подсказку о возможности загрузки чеков
-    if (d.stage === "done" && receiptsEnabled(chatId)) {
+    if (d.stage === "done" && receiptsEnabled(chatId) && hasEnoughPlayers(s)) {
       await api.sendMessageToChat(chatId, {
         text: "💡 Можете сразу загружать чеки об оплате! Используйте /оплата_список для просмотра должников.",
         notify: false

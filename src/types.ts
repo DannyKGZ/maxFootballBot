@@ -24,6 +24,7 @@ export interface FootballSession {
   notified?: string[]; // какие уведомления уже разосланы: "reminder", "pay-3" … "pay+2"
   paymentMessageId?: string | null; // последнее напоминание об оплате — следующее его заменяет
   closedAt?: number; // запись закрыта, потому что игра началась (список зафиксирован)
+  attendanceConfirmed?: boolean; // на начало игры набрался минимальный состав
   voteAutoStarted?: boolean; // голосование за MVP по этой игре уже запускалось автоматически
   draft?: Draft; // дележка на команды
   mvpDone?: boolean; // голосование за MVP этой игры подведено — дележку внизу больше не держим

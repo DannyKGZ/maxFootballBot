@@ -49,6 +49,10 @@ export function getArchivedSession(chatId: number): FootballSession | undefined 
   return archived.get(chatId);
 }
 
+export function getSessionForGame(chatId: number, gameDate: string): FootballSession | undefined {
+  return [getSession(chatId), getArchivedSession(chatId)].find((session) => session?.date === gameDate);
+}
+
 export function getAllArchivedSessions(): FootballSession[] {
   return [...archived.values()];
 }
