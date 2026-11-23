@@ -9,7 +9,7 @@ import * as adminPanel from "./adminPanel";
 import { buildStatusText } from "./statusInfo";
 import { NICK_RE, handleAwaitedNick, handleDmUserAction, isDmUserAction, nickCommand } from "./dmMenu";
 import * as rosterEdit from "./rosterEdit";
-import { DM_DENIED, dmAllowed, dmTarget } from "./dmTarget";
+import { chatTitle, DM_DENIED, dmAllowed, dmTarget, userChats } from "./dmTarget";
 import { RECEIPTS_RE, SETTINGS_RE, handleSettingsAction, isSettingsAction, receiptsCommand, settingsCommand } from "./chatSettings";
 import * as draft from "./draftLogic";
 import { DESCRIPTION_RE, handleDescription } from "./descriptionLogic";
@@ -42,7 +42,7 @@ import { noteChatActivity } from "./stickyLogic";
 import * as banCommands from "./banCommands";
 import * as roles from "./rolesLogic";
 import { fullName } from "./messageFormatter";
-import { buildMatchHistory, HISTORY_RE } from "./matchHistory";
+import { buildHistoryMatch, buildHistoryPage, historyCommand, HISTORY_RE } from "./matchHistory";
 import { enqueueWebhook, isMaxUpdate } from "./updateQueue";
 
 // /голос — показать голосование за MVP (для всех).
@@ -77,7 +77,8 @@ const TEXT_COMMANDS: TextCommand[] = [
   {
     re: HISTORY_RE,
     run: async (c, m) => {
-      for (const text of buildMatchHistory(c.group, m[1])) await api.sendMessageToChat(c.reply, { text });
+      const title = c.dm ? await chatTitle(c.group) : undefined;
+      await api.sendMessageToChat(c.reply, historyCommand(c.group, m[1], title));
     },
   },
   { re: NICK_RE, run: (c, m) => nickCommand(c.userId, m[2]) },
@@ -291,6 +292,22 @@ async function handleMessageCallback(update: MaxUpdate): Promise<void> {
 
   if (!action) {
     await api.answerCallback(chatId, callback.callback_id, { notification: "Готово" });
+    return;
+  }
+
+  if (action.a === "history_list" || action.a === "history_match") {
+    const dm = message?.recipient?.chat_type === "dialog";
+    const mid = message?.body?.mid;
+    const allowed = dm ? (await userChats(pressedByUserId)).includes(action.g) : action.g === chatId;
+    if (!mid || !allowed) {
+      await api.answerCallback(chatId, callback.callback_id, { notification: "Откройте /история в нужном чате" });
+      return;
+    }
+    const title = dm ? await chatTitle(action.g) : undefined;
+    const view = action.a === "history_list"
+      ? buildHistoryPage(action.g, action.p, title)
+      : buildHistoryMatch(action.g, action.p, action.t, action.r, title);
+    await api.answerCallback(chatId, callback.callback_id, { message: view });
     return;
   }
 

@@ -15,7 +15,7 @@ export function decodePayload(payload: string | undefined): ButtonAction | null 
   }
 }
 
-function callbackButton(text: string, action: ButtonAction): KeyboardButton {
+export function callbackButton(text: string, action: ButtonAction): KeyboardButton {
   return { type: "callback", text, payload: encodePayload(action) };
 }
 

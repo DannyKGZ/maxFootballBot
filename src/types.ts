@@ -160,6 +160,8 @@ export interface MaxUpdate {
 // Payload инлайн-кнопок, которые генерирует бот (см. src/keyboard.ts)
 export type ButtonAction =
   | { a: "contacts" }
+  | { a: "history_list"; g: number; p: number }
+  | { a: "history_match"; g: number; p: number; t: number; r: number }
   | { a: "remove_no"; u: number }
   | { a: "rm_pick"; u: number; n: string } // выбор, кого из своих записей удалить (n = имя игрока)
   | { a: "admin_restart" } // кнопка в самом списке — доступна всем, право проверяется на сервере

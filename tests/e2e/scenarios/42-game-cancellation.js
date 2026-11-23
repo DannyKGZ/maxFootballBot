@@ -57,7 +57,9 @@ module.exports = {
     await t.say(1, command);
     t.ok(!!t.find(/уже отменена/), "повтор команды не меняет другие игры");
     await t.say(2, "/история");
-    const history = t.find(/^📚 История матчей/);
+    const historyList = t.find(/^📚 История матчей/);
+    await t.click(2, historyList, "🚫");
+    const history = t.mock.messages.get(historyList.mid);
     t.ok(history?.text.includes(dateLabel(date)) && history.text.includes("Игра отменена администратором")
       && history.text.includes("1. Ruslan") && !history.text.includes("🏆 MVP"),
     "ручная отмена с именами сразу видна в истории, в том числе после миграции базы");
@@ -68,7 +70,8 @@ module.exports = {
     await t.stopBot();
     t.scenario.env.CRON_SCHEDULE = "*/2 * * * * *";
     await t.startBot();
-    await t.waitFor(() => /пропускаю отменённую игру .* в чате -1/.test(t.log) && t.all(-2).some(m => /^Футбол в/.test(m.text)));
+    await t.waitFor(() => /пропускаю отменённую игру .* в чате -1/.test(t.log)
+      && t.all(-2).some(m => /^Футбол в/.test(m.text)) && !!session(-2));
     t.ok(session(-1)?.date === next && session(-2)?.date === date, "cron пропускает игру только в целевом чате после перезапуска");
 
     await t.say(1, "/игры Пн 12:00 Ср 19:00, Вт 12:00 Ср 20:00");

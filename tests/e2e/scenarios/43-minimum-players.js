@@ -69,7 +69,9 @@ module.exports = {
     t.ok(!t.query("SELECT 1 FROM votes WHERE chat_id = -1").length && cancelled?.mvp === null && cancelled?.cancellation_reason === "not_enough_players"
       && snapshot.length === 10 && snapshot.filter(player => !player.isReserve).length === 9,
       "после отмены в истории сохранён полный список с резервом, без MVP");
-    const history = t.find(/^📚 История матчей/);
+    const historyList = t.find(/^📚 История матчей/);
+    await t.click(2, historyList, "🚫");
+    const history = t.mock.messages.get(historyList.mid);
     t.ok(history?.text.includes("Игра отменена. Состав не собрался (в основе 9)") && history.text.includes("1. Игрок 2")
       && history.text.includes("🪑 Резерв (1)") && history.text.includes("1. Игрок 50"),
       "в истории есть причина и имена столбиком");

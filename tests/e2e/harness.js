@@ -55,6 +55,7 @@ function startMock() {
   };
   const answers = [];
   const calls = [];
+  const callbackMessages = new Map();
   const send = (res, obj, code = 200) => {
     res.writeHead(code, { "content-type": "application/json" });
     res.end(JSON.stringify(obj));
@@ -98,6 +99,13 @@ function startMock() {
       }
       if (p === "/answers") {
         answers.push(b.notification);
+        const id = u.searchParams.get("callback_id");
+        const message = messages.get(callbackMessages.get(id));
+        if (b.message) {
+          if (!message) return send(res, { success: false }, 404);
+          if (tooLong(b.message.text)) return send(res, { code: "text.length" }, 400);
+          Object.assign(message, b.message);
+        }
         return send(res, { success: true });
       }
       const chatKey = (p.match(/^\/chats\/(-?\d+)/) || [])[1] || "";
@@ -166,6 +174,7 @@ function startMock() {
         state,
         answers,
         calls,
+        callbackMessages,
         close: () => {
           for (const w of state.waiters.splice(0)) w(); // отпустить висящие long-poll запросы
           return new Promise((r) => server.close(r));
@@ -277,6 +286,9 @@ class Harness {
   }
 
   post(update) {
+    if (update.callback && update.message?.body?.mid) {
+      this.mock.callbackMessages.set(update.callback.callback_id, update.message.body.mid);
+    }
     if (this.scenario.env && this.scenario.env.UPDATES_MODE === "polling") {
       // В режиме polling событие не шлётся боту, а кладётся в очередь MAX — бот заберёт его сам.
       const st = this.mock.state;
